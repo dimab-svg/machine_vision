@@ -1,1 +1,721 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Распознавание карт</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: #000;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        }
+
+        /* Зона сканирования */
+        #scanArea {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 280px;
+            height: 400px;
+            border: 3px solid #4CAF50;
+            border-radius: 15px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { 
+                border-color: #4CAF50;
+                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5), 
+                            0 0 20px #4CAF50;
+            }
+            50% { 
+                border-color: #81C784;
+                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5), 
+                            0 0 40px #4CAF50;
+            }
+        }
+
+        #scanHint {
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        /* Панель результатов */
+        #resultPanel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.7));
+            padding: 30px 20px 40px;
+            transform: translateY(100%);
+            transition: transform 0.3s;
+            pointer-events: all;
+        }
+
+        #resultPanel.show {
+            transform: translateY(0);
+        }
+
+        #recognizedCard {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            margin-bottom: 20px;
+        }
+
+        .card-display {
+            font-size: 72px;
+            font-weight: bold;
+            margin: 20px 0;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-name {
+            font-size: 24px;
+            color: #333;
+            margin-top: 10px;
+        }
+
+        .suit-hearts, .suit-diamonds {
+            color: #e53935;
+        }
+
+        .suit-spades, .suit-clubs {
+            color: #212121;
+        }
+
+        #confidence {
+            font-size: 14px;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        #stats {
+            display: flex;
+            justify-content: space-around;
+            color: white;
+            font-size: 14px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .stat-label {
+            margin-top: 5px;
+            opacity: 0.7;
+        }
+
+        /* Контролы */
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            pointer-events: all;
+        }
+
+        button {
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: 500;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button.secondary {
+            background: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
+        }
+
+        /* Лог распознавания */
+        #log {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 200px;
+            max-height: 150px;
+            overflow-y: auto;
+            pointer-events: none;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        /* Загрузка */
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: white;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        #error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(229, 57, 53, 0.95);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 80%;
+            display: none;
+        }
+
+        #error.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <!-- Видеопоток -->
+        <video id="video" autoplay playsinline></video>
+        
+        <!-- Canvas для обработки -->
+        <canvas id="canvas"></canvas>
+        
+        <!-- Overlay с зоной сканирования -->
+        <div id="overlay">
+            <div id="scanArea">
+                <div id="scanHint">?? Наведите на карту</div>
+            </div>
+        </div>
+
+        <!-- Панель результата -->
+        <div id="resultPanel">
+            <div id="recognizedCard">
+                <div class="card-display" id="cardDisplay">?</div>
+                <div class="card-name" id="cardName">Распознавание...</div>
+                <div id="confidence"></div>
+            </div>
+            <div id="stats">
+                <div class="stat">
+                    <div class="stat-value" id="totalCards">0</div>
+                    <div class="stat-label">Распознано</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="fps">0</div>
+                    <div class="stat-label">FPS</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="processTime">0</div>
+                    <div class="stat-label">мс</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Контролы -->
+        <div id="controls">
+            <button id="toggleScan">? Пауза</button>
+            <button id="switchCamera" class="secondary">?? Камера</button>
+        </div>
+
+        <!-- Лог -->
+        <div id="log"></div>
+
+        <!-- Загрузка -->
+        <div id="loading">
+            <div class="spinner"></div>
+            <div>Инициализация камеры...</div>
+        </div>
+
+        <!-- Ошибка -->
+        <div id="error">
+            <h3>? Ошибка</h3>
+            <p id="errorMessage"></p>
+            <button onclick="location.reload()" style="margin-top: 20px;">Перезагрузить</button>
+        </div>
+    </div>
+
+    <script>
+        // ==================== КОНФИГУРАЦИЯ ====================
+        
+        const CONFIG = {
+            // Параметры видео
+            video: {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                facingMode: 'environment' // Задняя камера
+            },
+            
+            // Параметры обработки
+            processing: {
+                fps: 5, // Обрабатываем 5 кадров в секунду
+                canvasWidth: 640,
+                canvasHeight: 480
+            },
+            
+            // Зона сканирования (относительные координаты)
+            scanArea: {
+                x: 0.5,      // центр по X
+                y: 0.5,      // центр по Y
+                width: 0.4,  // 40% ширины экрана
+                height: 0.5  // 50% высоты экрана
+            }
+        };
+
+        // ==================== КАРТОЧНАЯ КОЛОДА ====================
+        
+        const CARDS = {
+            ranks: {
+                '6': { name: 'Шестёрка', value: 6 },
+                '7': { name: 'Семёрка', value: 7 },
+                '8': { name: 'Восьмёрка', value: 8 },
+                '9': { name: 'Девятка', value: 9 },
+                '10': { name: 'Десятка', value: 10 },
+                'J': { name: 'Валет', value: 11 },
+                'Q': { name: 'Дама', value: 12 },
+                'K': { name: 'Король', value: 13 },
+                'A': { name: 'Туз', value: 14 }
+            },
+            suits: {
+                '¦': { name: 'Пики', color: 'black', class: 'suit-spades' },
+                '¦': { name: 'Трефы', color: 'black', class: 'suit-clubs' },
+                '¦': { name: 'Червы', color: 'red', class: 'suit-hearts' },
+                '¦': { name: 'Бубны', color: 'red', class: 'suit-diamonds' }
+            }
+        };
+
+        // ==================== ГЛАВНЫЙ КЛАСС ====================
+        
+        class CardRecognizer {
+            constructor() {
+                // DOM элементы
+                this.video = document.getElementById('video');
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.loading = document.getElementById('loading');
+                this.error = document.getElementById('error');
+                this.resultPanel = document.getElementById('resultPanel');
+                this.log = document.getElementById('log');
+                
+                // Состояние
+                this.isScanning = false;
+                this.stream = null;
+                this.animationFrame = null;
+                this.lastProcessTime = 0;
+                this.totalRecognized = 0;
+                this.currentFacingMode = 'environment';
+                
+                // Статистика
+                this.stats = {
+                    fps: 0,
+                    processTime: 0,
+                    frameCount: 0,
+                    startTime: Date.now()
+                };
+                
+                this.init();
+            }
+
+            async init() {
+                try {
+                    this.addLog('Инициализация...');
+                    
+                    // Запускаем камеру
+                    await this.startCamera();
+                    
+                    // Настраиваем canvas
+                    this.setupCanvas();
+                    
+                    // Настраиваем контролы
+                    this.setupControls();
+                    
+                    // Скрываем загрузку
+                    this.loading.style.display = 'none';
+                    
+                    // Запускаем сканирование
+                    this.startScanning();
+                    
+                    this.addLog('? Готово к работе');
+                    
+                } catch (err) {
+                    this.showError('Не удалось запустить камеру: ' + err.message);
+                }
+            }
+
+            async startCamera() {
+                try {
+                    this.stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            ...CONFIG.video,
+                            facingMode: this.currentFacingMode
+                        }
+                    });
+                    
+                    this.video.srcObject = this.stream;
+                    
+                    // Ждём загрузки метаданных
+                    await new Promise(resolve => {
+                        this.video.onloadedmetadata = resolve;
+                    });
+                    
+                    this.addLog(`? Камера: ${this.video.videoWidth}x${this.video.videoHeight}`);
+                    
+                } catch (err) {
+                    throw new Error('Доступ к камере запрещён или камера недоступна');
+                }
+            }
+
+            setupCanvas() {
+                this.canvas.width = CONFIG.processing.canvasWidth;
+                this.canvas.height = CONFIG.processing.canvasHeight;
+            }
+
+            setupControls() {
+                // Пауза/продолжить
+                document.getElementById('toggleScan').addEventListener('click', () => {
+                    if (this.isScanning) {
+                        this.stopScanning();
+                        document.getElementById('toggleScan').textContent = '?? Продолжить';
+                    } else {
+                        this.startScanning();
+                        document.getElementById('toggleScan').textContent = '? Пауза';
+                    }
+                });
+
+                // Переключение камеры
+                document.getElementById('switchCamera').addEventListener('click', async () => {
+                    this.currentFacingMode = this.currentFacingMode === 'environment' ? 'user' : 'environment';
+                    
+                    // Останавливаем текущий поток
+                    if (this.stream) {
+                        this.stream.getTracks().forEach(track => track.stop());
+                    }
+                    
+                    // Запускаем новую камеру
+                    await this.startCamera();
+                });
+            }
+
+            startScanning() {
+                this.isScanning = true;
+                this.processFrame();
+            }
+
+            stopScanning() {
+                this.isScanning = false;
+                if (this.animationFrame) {
+                    cancelAnimationFrame(this.animationFrame);
+                }
+            }
+
+            async processFrame() {
+                if (!this.isScanning) return;
+
+                const now = performance.now();
+                const timeSinceLastProcess = now - this.lastProcessTime;
+
+                // Обрабатываем с заданной частотой
+                if (timeSinceLastProcess >= 1000 / CONFIG.processing.fps) {
+                    const startTime = performance.now();
+                    
+                    // Захватываем и обрабатываем кадр
+                    await this.captureAndRecognize();
+                    
+                    this.stats.processTime = Math.round(performance.now() - startTime);
+                    this.lastProcessTime = now;
+                    
+                    // Обновляем статистику
+                    this.updateStats();
+                }
+
+                // Следующий кадр
+                this.animationFrame = requestAnimationFrame(() => this.processFrame());
+            }
+
+            async captureAndRecognize() {
+                // Рисуем текущий кадр на canvas
+                this.ctx.drawImage(
+                    this.video,
+                    0, 0,
+                    this.canvas.width,
+                    this.canvas.height
+                );
+
+                // Извлекаем зону сканирования
+                const scanRegion = this.extractScanRegion();
+
+                // Распознаём карту
+                const card = await this.recognizeCard(scanRegion);
+
+                if (card) {
+                    this.displayRecognizedCard(card);
+                }
+            }
+
+            extractScanRegion() {
+                const w = this.canvas.width;
+                const h = this.canvas.height;
+                
+                const x = Math.floor(w * (CONFIG.scanArea.x - CONFIG.scanArea.width / 2));
+                const y = Math.floor(h * (CONFIG.scanArea.y - CONFIG.scanArea.height / 2));
+                const width = Math.floor(w * CONFIG.scanArea.width);
+                const height = Math.floor(h * CONFIG.scanArea.height);
+
+                return this.ctx.getImageData(x, y, width, height);
+            }
+
+            async recognizeCard(imageData) {
+                // УПРОЩЁННЫЙ АЛГОРИТМ РАСПОЗНАВАНИЯ
+                // В реальности здесь будет ML-модель или компьютерное зрение
+                
+                // Анализируем цвета в изображении
+                const colors = this.analyzeColors(imageData);
+                
+                // Определяем масть по преобладающему цвету
+                const suit = this.detectSuit(colors);
+                
+                // Пытаемся распознать ранг (упрощённо)
+                const rank = this.detectRank(imageData);
+                
+                // Если распознали что-то
+                if (suit || rank) {
+                    return {
+                        rank: rank || '?',
+                        suit: suit || '?',
+                        confidence: Math.random() * 30 + 70 // Имитация уверенности 70-100%
+                    };
+                }
+                
+                return null;
+            }
+
+            analyzeColors(imageData) {
+                const data = imageData.data;
+                let redPixels = 0;
+                let blackPixels = 0;
+                let whitePixels = 0;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    
+                    const brightness = (r + g + b) / 3;
+                    
+                    // Белый фон карты
+                    if (brightness > 200) {
+                        whitePixels++;
+                    }
+                    // Красный цвет (червы/бубны)
+                    else if (r > 150 && g < 100 && b < 100) {
+                        redPixels++;
+                    }
+                    // Чёрный цвет (пики/трефы)
+                    else if (brightness < 80) {
+                        blackPixels++;
+                    }
+                }
+
+                return { redPixels, blackPixels, whitePixels };
+            }
+
+            detectSuit(colors) {
+                const { redPixels, blackPixels, whitePixels } = colors;
+                
+                // Если много белого - похоже на карту
+                if (whitePixels > 5000) {
+                    if (redPixels > blackPixels) {
+                        // Случайно выбираем между червами и бубнами
+                        return Math.random() > 0.5 ? '¦' : '¦';
+                    } else if (blackPixels > redPixels) {
+                        // Случайно выбираем между пиками и трефами
+                        return Math.random() > 0.5 ? '¦' : '¦';
+                    }
+                }
+                
+                return null;
+            }
+
+            detectRank(imageData) {
+                // УПРОЩЁННАЯ ИМИТАЦИЯ
+                // В реальности здесь OCR или сравнение с шаблонами
+                
+                // Случайно выбираем ранг для демонстрации
+                const ranks = Object.keys(CARDS.ranks);
+                
+                // С вероятностью 30% распознаём ранг
+                if (Math.random() > 0.7) {
+                    return ranks[Math.floor(Math.random() * ranks.length)];
+                }
+                
+                return null;
+            }
+
+            displayRecognizedCard(card) {
+                const { rank, suit, confidence } = card;
+                
+                // Получаем информацию о карте
+                const rankInfo = CARDS.ranks[rank] || { name: 'Неизвестно' };
+                const suitInfo = CARDS.suits[suit] || { name: 'Неизвестно', class: '' };
+                
+                // Обновляем UI
+                const display = document.getElementById('cardDisplay');
+                display.textContent = `${rank}${suit}`;
+                display.className = `card-display ${suitInfo.class}`;
+                
+                document.getElementById('cardName').textContent = 
+                    `${rankInfo.name} ${suitInfo.name}`;
+                
+                document.getElementById('confidence').textContent = 
+                    `Уверенность: ${Math.round(confidence)}%`;
+                
+                // Показываем панель
+                this.resultPanel.classList.add('show');
+                
+                // Обновляем счётчик
+                this.totalRecognized++;
+                document.getElementById('totalCards').textContent = this.totalRecognized;
+                
+                // Добавляем в лог
+                this.addLog(`${rank}${suit} (${Math.round(confidence)}%)`);
+            }
+
+            updateStats() {
+                this.stats.frameCount++;
+                
+                // Обновляем FPS
+                const elapsed = (Date.now() - this.stats.startTime) / 1000;
+                this.stats.fps = Math.round(this.stats.frameCount / elapsed);
+                
+                document.getElementById('fps').textContent = this.stats.fps;
+                document.getElementById('processTime').textContent = this.stats.processTime;
+            }
+
+            addLog(message) {
+                const entry = document.createElement('div');
+                entry.className = 'log-entry';
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                
+                this.log.insertBefore(entry, this.log.firstChild);
+                
+                // Ограничиваем количество записей
+                while (this.log.children.length > 10) {
+                    this.log.removeChild(this.log.lastChild);
+                }
+            }
+
+            showError(message) {
+                document.getElementById('errorMessage').textContent = message;
+                this.error.classList.add('show');
+                this.loading.style.display = 'none';
+            }
+        }
+
+        // ==================== ЗАПУСК ====================
+        
+        // Проверяем поддержку браузера
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Ваш браузер не поддерживает доступ к камере');
+        } else {
+            // Запускаем приложение после загрузки страницы
+            window.addEventListener('load', () => {
+                new CardRecognizer();
+            });
+        }
+    </script>
+</body>
+</html>
