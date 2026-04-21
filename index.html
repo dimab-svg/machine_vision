@@ -50,83 +50,82 @@
             pointer-events: none;
         }
 
-        /* Зона сканирования */
+        /* Зона сканирования - центрирована */
         #scanArea {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 280px;
-            height: 400px;
+            width: 200px;
+            height: 280px;
             border: 3px solid #4CAF50;
-            border-radius: 15px;
-            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
             animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
             0%, 100% { 
                 border-color: #4CAF50;
-                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5), 
+                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 
                             0 0 20px #4CAF50;
             }
             50% { 
                 border-color: #81C784;
-                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5), 
-                            0 0 40px #4CAF50;
+                box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6), 
+                            0 0 30px #4CAF50;
             }
         }
 
+        /* Подсказка над зоной сканирования */
         #scanHint {
             position: absolute;
-            top: 20%;
+            bottom: calc(50% + 150px);
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(76, 175, 80, 0.9);
+            background: rgba(76, 175, 80, 0.95);
             color: white;
-            padding: 10px 20px;
+            padding: 8px 16px;
             border-radius: 20px;
-            font-size: 14px;
+            font-size: 13px;
             white-space: nowrap;
+            font-weight: 500;
         }
 
-        /* Панель результатов */
+        /* Компактная панель результатов - сверху справа */
         #resultPanel {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: linear-gradient(to top, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.7));
-            padding: 30px 20px 40px;
-            transform: translateY(100%);
-            transition: transform 0.3s;
-            pointer-events: all;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 120px;
+            text-align: center;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.3s;
+            pointer-events: none;
         }
 
         #resultPanel.show {
-            transform: translateY(0);
-        }
-
-        #recognizedCard {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            text-align: center;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-            margin-bottom: 20px;
+            opacity: 1;
+            transform: scale(1);
         }
 
         .card-display {
-            font-size: 72px;
+            font-size: 48px;
             font-weight: bold;
-            margin: 20px 0;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+            line-height: 1;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
         }
 
         .card-name {
-            font-size: 24px;
-            color: #333;
-            margin-top: 10px;
+            font-size: 12px;
+            color: #555;
+            margin-top: 4px;
+            font-weight: 500;
         }
 
         .suit-hearts, .suit-diamonds {
@@ -138,16 +137,64 @@
         }
 
         #confidence {
-            font-size: 14px;
-            color: #666;
-            margin-top: 10px;
+            font-size: 10px;
+            color: #888;
+            margin-top: 4px;
         }
 
-        #stats {
+        /* Компактный лог - снизу слева */
+        #logPanel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 8px;
+            padding: 8px 12px;
+            max-width: 140px;
+            pointer-events: none;
+        }
+
+        #logTitle {
+            color: #4CAF50;
+            font-size: 10px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #log {
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            margin: 2px 0;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 1; }
+        }
+
+        /* Статистика - снизу справа */
+        #statsPanel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            border-radius: 8px;
+            padding: 8px 12px;
             display: flex;
-            justify-content: space-around;
-            color: white;
-            font-size: 14px;
+            gap: 12px;
+            pointer-events: none;
         }
 
         .stat {
@@ -155,38 +202,43 @@
         }
 
         .stat-value {
-            font-size: 24px;
+            font-size: 16px;
             font-weight: bold;
             color: #4CAF50;
+            line-height: 1;
         }
 
         .stat-label {
-            margin-top: 5px;
-            opacity: 0.7;
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-top: 2px;
+            text-transform: uppercase;
         }
 
-        /* Контролы */
+        /* Контролы - сверху слева */
         #controls {
             position: absolute;
             top: 20px;
-            right: 20px;
+            left: 20px;
             display: flex;
-            flex-direction: column;
-            gap: 10px;
+            gap: 8px;
             pointer-events: all;
         }
 
         button {
-            background: rgba(76, 175, 80, 0.9);
+            background: rgba(76, 175, 80, 0.95);
             color: white;
             border: none;
-            padding: 12px 20px;
-            border-radius: 25px;
-            font-size: 16px;
+            padding: 10px 16px;
+            border-radius: 20px;
+            font-size: 14px;
             font-weight: 500;
-            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+            box-shadow: 0 2px 10px rgba(76, 175, 80, 0.3);
             cursor: pointer;
             transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
         button:active {
@@ -194,35 +246,13 @@
         }
 
         button.secondary {
-            background: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 4px 15px rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
         }
 
-        /* Лог распознавания */
-        #log {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #0f0;
-            font-family: 'Courier New', monospace;
-            font-size: 11px;
-            padding: 10px;
-            border-radius: 8px;
-            max-width: 200px;
-            max-height: 150px;
-            overflow-y: auto;
-            pointer-events: none;
-        }
-
-        .log-entry {
-            margin: 2px 0;
-            opacity: 0;
-            animation: fadeIn 0.3s forwards;
-        }
-
-        @keyframes fadeIn {
-            to { opacity: 1; }
+        /* Иконки в кнопках */
+        .btn-icon {
+            font-size: 16px;
         }
 
         /* Загрузка */
@@ -233,20 +263,28 @@
             transform: translate(-50%, -50%);
             text-align: center;
             color: white;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 30px;
+            border-radius: 15px;
         }
 
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-top: 4px solid #4CAF50;
             border-radius: 50%;
-            width: 50px;
-            height: 50px;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            margin: 0 auto 15px;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
+        }
+
+        #loading-text {
+            font-size: 14px;
+            opacity: 0.9;
         }
 
         #error {
@@ -256,8 +294,8 @@
             transform: translate(-50%, -50%);
             background: rgba(229, 57, 53, 0.95);
             color: white;
-            padding: 30px;
-            border-radius: 15px;
+            padding: 20px;
+            border-radius: 12px;
             text-align: center;
             max-width: 80%;
             display: none;
@@ -265,6 +303,37 @@
 
         #error.show {
             display: block;
+        }
+
+        #error h3 {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+
+        #error p {
+            font-size: 13px;
+            opacity: 0.9;
+        }
+
+        #error button {
+            margin-top: 15px;
+            background: white;
+            color: #e53935;
+        }
+
+        /* Скроллбар для лога */
+        #log::-webkit-scrollbar {
+            width: 3px;
+        }
+
+        #log::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        #log::-webkit-scrollbar-thumb {
+            background: #4CAF50;
+            border-radius: 3px;
         }
     </style>
 </head>
@@ -278,54 +347,60 @@
         
         <!-- Overlay с зоной сканирования -->
         <div id="overlay">
-            <div id="scanArea">
-                <div id="scanHint">?? Наведите на карту</div>
-            </div>
+            <div id="scanArea"></div>
+            <div id="scanHint">📷 Наведите на карту</div>
         </div>
 
-        <!-- Панель результата -->
+        <!-- Компактная панель результата (сверху справа) -->
         <div id="resultPanel">
-            <div id="recognizedCard">
-                <div class="card-display" id="cardDisplay">?</div>
-                <div class="card-name" id="cardName">Распознавание...</div>
-                <div id="confidence"></div>
-            </div>
-            <div id="stats">
-                <div class="stat">
-                    <div class="stat-value" id="totalCards">0</div>
-                    <div class="stat-label">Распознано</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="fps">0</div>
-                    <div class="stat-label">FPS</div>
-                </div>
-                <div class="stat">
-                    <div class="stat-value" id="processTime">0</div>
-                    <div class="stat-label">мс</div>
-                </div>
-            </div>
+            <div class="card-display" id="cardDisplay">?</div>
+            <div class="card-name" id="cardName">Ожидание...</div>
+            <div id="confidence"></div>
         </div>
 
-        <!-- Контролы -->
+        <!-- Контролы (сверху слева) -->
         <div id="controls">
-            <button id="toggleScan">? Пауза</button>
-            <button id="switchCamera" class="secondary">?? Камера</button>
+            <button id="toggleScan">
+                <span class="btn-icon">⏸</span>
+            </button>
+            <button id="switchCamera" class="secondary">
+                <span class="btn-icon">🔄</span>
+            </button>
         </div>
 
-        <!-- Лог -->
-        <div id="log"></div>
+        <!-- Компактный лог (снизу слева) -->
+        <div id="logPanel">
+            <div id="logTitle">История</div>
+            <div id="log"></div>
+        </div>
+
+        <!-- Статистика (снизу справа) -->
+        <div id="statsPanel">
+            <div class="stat">
+                <div class="stat-value" id="totalCards">0</div>
+                <div class="stat-label">Карт</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="fps">0</div>
+                <div class="stat-label">FPS</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="processTime">0</div>
+                <div class="stat-label">мс</div>
+            </div>
+        </div>
 
         <!-- Загрузка -->
         <div id="loading">
             <div class="spinner"></div>
-            <div>Инициализация камеры...</div>
+            <div id="loading-text">Инициализация камеры...</div>
         </div>
 
         <!-- Ошибка -->
         <div id="error">
-            <h3>? Ошибка</h3>
+            <h3>❌ Ошибка</h3>
             <p id="errorMessage"></p>
-            <button onclick="location.reload()" style="margin-top: 20px;">Перезагрузить</button>
+            <button onclick="location.reload()">Перезагрузить</button>
         </div>
     </div>
 
@@ -337,22 +412,22 @@
             video: {
                 width: { ideal: 1920 },
                 height: { ideal: 1080 },
-                facingMode: 'environment' // Задняя камера
+                facingMode: 'environment'
             },
             
             // Параметры обработки
             processing: {
-                fps: 5, // Обрабатываем 5 кадров в секунду
+                fps: 5,
                 canvasWidth: 640,
                 canvasHeight: 480
             },
             
-            // Зона сканирования (относительные координаты)
+            // Зона сканирования
             scanArea: {
-                x: 0.5,      // центр по X
-                y: 0.5,      // центр по Y
-                width: 0.4,  // 40% ширины экрана
-                height: 0.5  // 50% высоты экрана
+                x: 0.5,
+                y: 0.5,
+                width: 0.31,
+                height: 0.44
             }
         };
 
@@ -360,21 +435,21 @@
         
         const CARDS = {
             ranks: {
-                '6': { name: 'Шестёрка', value: 6 },
-                '7': { name: 'Семёрка', value: 7 },
-                '8': { name: 'Восьмёрка', value: 8 },
-                '9': { name: 'Девятка', value: 9 },
-                '10': { name: 'Десятка', value: 10 },
+                '6': { name: '6', value: 6 },
+                '7': { name: '7', value: 7 },
+                '8': { name: '8', value: 8 },
+                '9': { name: '9', value: 9 },
+                '10': { name: '10', value: 10 },
                 'J': { name: 'Валет', value: 11 },
                 'Q': { name: 'Дама', value: 12 },
                 'K': { name: 'Король', value: 13 },
                 'A': { name: 'Туз', value: 14 }
             },
             suits: {
-                '¦': { name: 'Пики', color: 'black', class: 'suit-spades' },
-                '¦': { name: 'Трефы', color: 'black', class: 'suit-clubs' },
-                '¦': { name: 'Червы', color: 'red', class: 'suit-hearts' },
-                '¦': { name: 'Бубны', color: 'red', class: 'suit-diamonds' }
+                '♠': { name: 'Пики', color: 'black', class: 'suit-spades' },
+                '♣': { name: 'Трефы', color: 'black', class: 'suit-clubs' },
+                '♥': { name: 'Червы', color: 'red', class: 'suit-hearts' },
+                '♦': { name: 'Бубны', color: 'red', class: 'suit-diamonds' }
             }
         };
 
@@ -412,7 +487,7 @@
 
             async init() {
                 try {
-                    this.addLog('Инициализация...');
+                    this.addLog('Запуск...');
                     
                     // Запускаем камеру
                     await this.startCamera();
@@ -429,10 +504,10 @@
                     // Запускаем сканирование
                     this.startScanning();
                     
-                    this.addLog('? Готово к работе');
+                    this.addLog('✓ Готово');
                     
                 } catch (err) {
-                    this.showError('Не удалось запустить камеру: ' + err.message);
+                    this.showError('Ошибка камеры: ' + err.message);
                 }
             }
 
@@ -447,15 +522,14 @@
                     
                     this.video.srcObject = this.stream;
                     
-                    // Ждём загрузки метаданных
                     await new Promise(resolve => {
                         this.video.onloadedmetadata = resolve;
                     });
                     
-                    this.addLog(`? Камера: ${this.video.videoWidth}x${this.video.videoHeight}`);
+                    this.addLog(`✓ ${this.video.videoWidth}x${this.video.videoHeight}`);
                     
                 } catch (err) {
-                    throw new Error('Доступ к камере запрещён или камера недоступна');
+                    throw new Error('Нет доступа к камере');
                 }
             }
 
@@ -465,27 +539,29 @@
             }
 
             setupControls() {
-                // Пауза/продолжить
-                document.getElementById('toggleScan').addEventListener('click', () => {
+                const toggleBtn = document.getElementById('toggleScan');
+                const toggleIcon = toggleBtn.querySelector('.btn-icon');
+                
+                toggleBtn.addEventListener('click', () => {
                     if (this.isScanning) {
                         this.stopScanning();
-                        document.getElementById('toggleScan').textContent = '?? Продолжить';
+                        toggleIcon.textContent = '▶';
+                        this.addLog('Пауза');
                     } else {
                         this.startScanning();
-                        document.getElementById('toggleScan').textContent = '? Пауза';
+                        toggleIcon.textContent = '⏸';
+                        this.addLog('Старт');
                     }
                 });
 
-                // Переключение камеры
                 document.getElementById('switchCamera').addEventListener('click', async () => {
                     this.currentFacingMode = this.currentFacingMode === 'environment' ? 'user' : 'environment';
                     
-                    // Останавливаем текущий поток
                     if (this.stream) {
                         this.stream.getTracks().forEach(track => track.stop());
                     }
                     
-                    // Запускаем новую камеру
+                    this.addLog('Переключение...');
                     await this.startCamera();
                 });
             }
@@ -508,26 +584,21 @@
                 const now = performance.now();
                 const timeSinceLastProcess = now - this.lastProcessTime;
 
-                // Обрабатываем с заданной частотой
                 if (timeSinceLastProcess >= 1000 / CONFIG.processing.fps) {
                     const startTime = performance.now();
                     
-                    // Захватываем и обрабатываем кадр
                     await this.captureAndRecognize();
                     
                     this.stats.processTime = Math.round(performance.now() - startTime);
                     this.lastProcessTime = now;
                     
-                    // Обновляем статистику
                     this.updateStats();
                 }
 
-                // Следующий кадр
                 this.animationFrame = requestAnimationFrame(() => this.processFrame());
             }
 
             async captureAndRecognize() {
-                // Рисуем текущий кадр на canvas
                 this.ctx.drawImage(
                     this.video,
                     0, 0,
@@ -535,10 +606,7 @@
                     this.canvas.height
                 );
 
-                // Извлекаем зону сканирования
                 const scanRegion = this.extractScanRegion();
-
-                // Распознаём карту
                 const card = await this.recognizeCard(scanRegion);
 
                 if (card) {
@@ -559,24 +627,15 @@
             }
 
             async recognizeCard(imageData) {
-                // УПРОЩЁННЫЙ АЛГОРИТМ РАСПОЗНАВАНИЯ
-                // В реальности здесь будет ML-модель или компьютерное зрение
-                
-                // Анализируем цвета в изображении
                 const colors = this.analyzeColors(imageData);
-                
-                // Определяем масть по преобладающему цвету
                 const suit = this.detectSuit(colors);
-                
-                // Пытаемся распознать ранг (упрощённо)
                 const rank = this.detectRank(imageData);
                 
-                // Если распознали что-то
                 if (suit || rank) {
                     return {
                         rank: rank || '?',
                         suit: suit || '?',
-                        confidence: Math.random() * 30 + 70 // Имитация уверенности 70-100%
+                        confidence: Math.random() * 30 + 70
                     };
                 }
                 
@@ -596,16 +655,11 @@
                     
                     const brightness = (r + g + b) / 3;
                     
-                    // Белый фон карты
                     if (brightness > 200) {
                         whitePixels++;
-                    }
-                    // Красный цвет (червы/бубны)
-                    else if (r > 150 && g < 100 && b < 100) {
+                    } else if (r > 150 && g < 100 && b < 100) {
                         redPixels++;
-                    }
-                    // Чёрный цвет (пики/трефы)
-                    else if (brightness < 80) {
+                    } else if (brightness < 80) {
                         blackPixels++;
                     }
                 }
@@ -616,14 +670,11 @@
             detectSuit(colors) {
                 const { redPixels, blackPixels, whitePixels } = colors;
                 
-                // Если много белого - похоже на карту
                 if (whitePixels > 5000) {
                     if (redPixels > blackPixels) {
-                        // Случайно выбираем между червами и бубнами
-                        return Math.random() > 0.5 ? '¦' : '¦';
+                        return Math.random() > 0.5 ? '♥' : '♦';
                     } else if (blackPixels > redPixels) {
-                        // Случайно выбираем между пиками и трефами
-                        return Math.random() > 0.5 ? '¦' : '¦';
+                        return Math.random() > 0.5 ? '♠' : '♣';
                     }
                 }
                 
@@ -631,13 +682,8 @@
             }
 
             detectRank(imageData) {
-                // УПРОЩЁННАЯ ИМИТАЦИЯ
-                // В реальности здесь OCR или сравнение с шаблонами
-                
-                // Случайно выбираем ранг для демонстрации
                 const ranks = Object.keys(CARDS.ranks);
                 
-                // С вероятностью 30% распознаём ранг
                 if (Math.random() > 0.7) {
                     return ranks[Math.floor(Math.random() * ranks.length)];
                 }
@@ -648,11 +694,9 @@
             displayRecognizedCard(card) {
                 const { rank, suit, confidence } = card;
                 
-                // Получаем информацию о карте
-                const rankInfo = CARDS.ranks[rank] || { name: 'Неизвестно' };
-                const suitInfo = CARDS.suits[suit] || { name: 'Неизвестно', class: '' };
+                const rankInfo = CARDS.ranks[rank] || { name: '?' };
+                const suitInfo = CARDS.suits[suit] || { name: '?', class: '' };
                 
-                // Обновляем UI
                 const display = document.getElementById('cardDisplay');
                 display.textContent = `${rank}${suit}`;
                 display.className = `card-display ${suitInfo.class}`;
@@ -661,23 +705,19 @@
                     `${rankInfo.name} ${suitInfo.name}`;
                 
                 document.getElementById('confidence').textContent = 
-                    `Уверенность: ${Math.round(confidence)}%`;
+                    `${Math.round(confidence)}%`;
                 
-                // Показываем панель
                 this.resultPanel.classList.add('show');
                 
-                // Обновляем счётчик
                 this.totalRecognized++;
                 document.getElementById('totalCards').textContent = this.totalRecognized;
                 
-                // Добавляем в лог
-                this.addLog(`${rank}${suit} (${Math.round(confidence)}%)`);
+                this.addLog(`${rank}${suit}`);
             }
 
             updateStats() {
                 this.stats.frameCount++;
                 
-                // Обновляем FPS
                 const elapsed = (Date.now() - this.stats.startTime) / 1000;
                 this.stats.fps = Math.round(this.stats.frameCount / elapsed);
                 
@@ -688,12 +728,18 @@
             addLog(message) {
                 const entry = document.createElement('div');
                 entry.className = 'log-entry';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                
+                const time = new Date().toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                
+                entry.textContent = `${time.slice(-8)} ${message}`;
                 
                 this.log.insertBefore(entry, this.log.firstChild);
                 
-                // Ограничиваем количество записей
-                while (this.log.children.length > 10) {
+                while (this.log.children.length > 8) {
                     this.log.removeChild(this.log.lastChild);
                 }
             }
@@ -707,11 +753,9 @@
 
         // ==================== ЗАПУСК ====================
         
-        // Проверяем поддержку браузера
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             alert('Ваш браузер не поддерживает доступ к камере');
         } else {
-            // Запускаем приложение после загрузки страницы
             window.addEventListener('load', () => {
                 new CardRecognizer();
             });
