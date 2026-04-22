@@ -347,417 +347,603 @@
     </div>
 
     <script>
-        const CONFIG = {
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'environment' },
-            canvas: { width: 320, height: 480 },
-            scanArea: { widthRatio: 0.40, heightRatio: 0.55 },
+const CONFIG = {
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'environment' },
+    canvas: { width: 320, height: 480 },
+    scanArea: { widthRatio: 0.40, heightRatio: 0.55 },
+    
+    templates: [
+        { file: '7h.jpg', rank: '7', suit: '♥', name: '7 Червей' },
+        { file: '8p.jpg', rank: '8', suit: '♠', name: '8 Пик' },
+        { file: '9tr.jpg', rank: '9', suit: '♣', name: '9 Треф' },
+        { file: '10b.jpg', rank: '10', suit: '♦', name: '10 Бубен' },
+        { file: 'dh.jpg', rank: 'Q', suit: '♥', name: 'Дама Червей' },
+        { file: 'kp.jpg', rank: 'K', suit: '♠', name: 'Король Пик' },
+        { file: 'tb.jpg', rank: 'A', suit: '♦', name: 'Туз Бубен' },
+        { file: 'vtr.jpg', rank: 'J', suit: '♣', name: 'Валет Треф' }
+    ]
+};
+
+const CARDS = {
+    '♥': { name: 'Червы', class: 'red' },
+    '♦': { name: 'Бубны', class: 'red' },
+    '♠': { name: 'Пики', class: 'black' },
+    '♣': { name: 'Трефы', class: 'black' }
+};
+
+// ==================== УЛУЧШЕННОЕ РАСПОЗНАВАНИЕ ====================
+
+class TemplateRecognizer {
+    constructor() {
+        this.templates = [];
+        this.ready = false;
+    }
+
+    async loadTemplates() {
+        const loadPromises = CONFIG.templates.map(async (template) => {
+            try {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                
+                const loadPromise = new Promise((resolve, reject) => {
+                    img.onload = () => resolve(img);
+                    img.onerror = () => reject(new Error(`Не загрузился: ${template.file}`));
+                });
+                
+                img.src = `templates/${template.file}`;
+                const loadedImg = await loadPromise;
+                
+                // Извлекаем признаки шаблона
+                const features = this.extractFeatures(loadedImg);
+                
+                this.templates.push({
+                    ...template,
+                    features: features
+                });
+                
+                return true;
+            } catch (error) {
+                console.error('Ошибка загрузки:', template.file, error);
+                return false;
+            }
+        });
+
+        const results = await Promise.all(loadPromises);
+        const successCount = results.filter(r => r).length;
+        
+        this.ready = successCount > 0;
+        return { success: this.ready, loaded: successCount, total: CONFIG.templates.length };
+    }
+
+    extractFeatures(img) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Стандартизируем размер: 150x200
+        canvas.width = 150;
+        canvas.height = 200;
+        ctx.drawImage(img, 0, 0, 150, 200);
+        
+        // Извлекаем верхний левый угол (там символы)
+        const cornerSize = 60; // 60x60 пикселей
+        const cornerData = ctx.getImageData(0, 0, cornerSize, cornerSize);
+        
+        return {
+            // 1. Цветовая гистограмма
+            colorHistogram: this.buildColorHistogram(cornerData),
             
-            // ШАБЛОНЫ КАРТ
-            templates: [
-                // Имеющиеся у вас
-                { file: '7h.jpg', rank: '7', suit: '♥', name: '7 Червей' },
-                { file: '8p.jpg', rank: '8', suit: '♠', name: '8 Пик' },
-                { file: '9tr.jpg', rank: '9', suit: '♣', name: '9 Треф' },
-                { file: '10b.jpg', rank: '10', suit: '♦', name: '10 Бубен' },
-                { file: 'dh.jpg', rank: 'Q', suit: '♥', name: 'Дама Червей' },
-                { file: 'kp.jpg', rank: 'K', suit: '♠', name: 'Король Пик' },
-                { file: 'tb.jpg', rank: 'A', suit: '♦', name: 'Туз Бубен' },
-                { file: 'vtr.jpg', rank: 'J', suit: '♣', name: 'Валет Треф' }
-                
-                // Добавьте остальные 28 карт позже
-            ]
+            // 2. Карта краёв (контуры)
+            edgeMap: this.buildEdgeMap(cornerData),
+            
+            // 3. Плотность пикселей по зонам
+            densityMap: this.buildDensityMap(cornerData),
+            
+            // 4. Сырые данные угла (уменьшенные)
+            rawCorner: this.downscaleImage(cornerData, 30, 30)
         };
+    }
 
-        const CARDS = {
-            '♥': { name: 'Червы', class: 'red' },
-            '♦': { name: 'Бубны', class: 'red' },
-            '♠': { name: 'Пики', class: 'black' },
-            '♣': { name: 'Трефы', class: 'black' }
+    buildColorHistogram(imageData) {
+        const { data } = imageData;
+        const histogram = {
+            red: 0,
+            black: 0,
+            white: 0,
+            redRatio: 0
         };
-
-        // ==================== РАСПОЗНАВАНИЕ ПО ШАБЛОНАМ ====================
         
-        class TemplateRecognizer {
-            constructor() {
-                this.templates = [];
-                this.ready = false;
-            }
-
-            async loadTemplates() {
-                const loadPromises = CONFIG.templates.map(async (template) => {
-                    try {
-                        const img = new Image();
-                        img.crossOrigin = 'anonymous';
-                        
-                        const loadPromise = new Promise((resolve, reject) => {
-                            img.onload = () => resolve(img);
-                            img.onerror = () => reject(new Error(`Не загрузился: ${template.file}`));
-                        });
-                        
-                        img.src = `templates/${template.file}`;
-                        const loadedImg = await loadPromise;
-                        
-                        // Извлекаем верхний левый угол шаблона
-                        const cornerData = this.extractTemplateCorner(loadedImg);
-                        
-                        this.templates.push({
-                            ...template,
-                            cornerData: cornerData
-                        });
-                        
-                        return true;
-                    } catch (error) {
-                        console.error('Ошибка загрузки шаблона:', template.file, error);
-                        return false;
-                    }
-                });
-
-                const results = await Promise.all(loadPromises);
-                const successCount = results.filter(r => r).length;
-                
-                this.ready = successCount > 0;
-                return { success: this.ready, loaded: successCount, total: CONFIG.templates.length };
-            }
-
-            extractTemplateCorner(img) {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                // Масштабируем шаблон до стандартного размера
-                const standardWidth = 100;
-                const standardHeight = Math.floor(img.height * (standardWidth / img.width));
-                
-                canvas.width = standardWidth;
-                canvas.height = standardHeight;
-                ctx.drawImage(img, 0, 0, standardWidth, standardHeight);
-                
-                // Извлекаем угол (30% от размера)
-                const cornerW = Math.floor(standardWidth * 0.30);
-                const cornerH = Math.floor(standardHeight * 0.30);
-                
-                return ctx.getImageData(0, 0, cornerW, cornerH);
-            }
-
-            async recognizeCard(imageData) {
-                const debug = {};
-                
-                if (!this.ready) {
-                    return { error: 'Шаблоны не загружены', debug };
-                }
-
-                try {
-                    // 1. Проверяем белый фон
-                    const hasCard = this.detectWhiteBackground(imageData);
-                    debug.white = (hasCard.ratio * 100).toFixed(0) + '%';
-                    
-                    if (!hasCard.detected) {
-                        return { error: 'Карта не видна', debug };
-                    }
-
-                    // 2. Извлекаем угол из захваченного изображения
-                    const corner = this.extractCorner(imageData);
-                    
-                    // 3. Сравниваем с каждым шаблоном
-                    let bestMatch = null;
-                    let bestScore = 0;
-                    
-                    for (let template of this.templates) {
-                        const score = this.compareImages(corner, template.cornerData);
-                        
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestMatch = template;
-                        }
-                    }
-                    
-                    debug.bestScore = (bestScore * 100).toFixed(1) + '%';
-                    debug.matchedCard = bestMatch ? bestMatch.name : 'none';
-                    
-                    // Порог совпадения - 60%
-                    if (bestScore < 0.60) {
-                        return { error: 'Не похоже на шаблон', debug };
-                    }
-                    
-                    return {
-                        rank: bestMatch.rank,
-                        suit: bestMatch.suit,
-                        name: bestMatch.name,
-                        confidence: Math.round(bestScore * 100),
-                        debug: debug
-                    };
-                    
-                } catch (error) {
-                    console.error('Recognition error:', error);
-                    return { error: error.message, debug };
-                }
-            }
-
-            detectWhiteBackground(imageData) {
-                const { data, width, height } = imageData;
-                let whitePixels = 0;
-                const total = width * height;
-                const step = 3; // Проверяем каждый 3-й пиксель
-                
-                for (let i = 0; i < data.length; i += 4 * step) {
-                    const r = data[i], g = data[i + 1], b = data[i + 2];
-                    const brightness = (r + g + b) / 3;
-                    const variance = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
-                    
-                    if (brightness > 170 && variance < 50) {
-                        whitePixels++;
-                    }
-                }
-                
-                const ratio = (whitePixels * step) / total;
-                return {
-                    detected: ratio > 0.20 && ratio < 0.90,
-                    ratio: ratio
-                };
-            }
-
-            extractCorner(imageData) {
-                const { data, width, height } = imageData;
-                
-                // Стандартизируем размер
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                const standardW = 100;
-                const standardH = Math.floor(height * (standardW / width));
-                
-                canvas.width = standardW;
-                canvas.height = standardH;
-                
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = width;
-                tempCanvas.height = height;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.putImageData(imageData, 0, 0);
-                
-                ctx.drawImage(tempCanvas, 0, 0, standardW, standardH);
-                
-                // Извлекаем угол
-                const cornerW = Math.floor(standardW * 0.30);
-                const cornerH = Math.floor(standardH * 0.30);
-                
-                return ctx.getImageData(0, 0, cornerW, cornerH);
-            }
-
-            compareImages(img1, img2) {
-                // Убеждаемся, что размеры одинаковые
-                if (img1.width !== img2.width || img1.height !== img2.height) {
-                    // Масштабируем img1 к размеру img2
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img2.width;
-                    canvas.height = img2.height;
-                    const ctx = canvas.getContext('2d');
-                    
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = img1.width;
-                    tempCanvas.height = img1.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    tempCtx.putImageData(img1, 0, 0);
-                    
-                    ctx.drawImage(tempCanvas, 0, 0, img2.width, img2.height);
-                    img1 = ctx.getImageData(0, 0, img2.width, img2.height);
-                }
-                
-                const data1 = img1.data;
-                const data2 = img2.data;
-                
-                let totalDiff = 0;
-                const pixels = data1.length / 4;
-                
-                for (let i = 0; i < data1.length; i += 4) {
-                    const r1 = data1[i], g1 = data1[i + 1], b1 = data1[i + 2];
-                    const r2 = data2[i], g2 = data2[i + 1], b2 = data2[i + 2];
-                    
-                    // Евклидово расстояние в RGB пространстве
-                    const diff = Math.sqrt(
-                        Math.pow(r1 - r2, 2) +
-                        Math.pow(g1 - g2, 2) +
-                        Math.pow(b1 - b2, 2)
-                    );
-                    
-                    totalDiff += diff;
-                }
-                
-                // Нормализуем: максимальная разница = sqrt(3 * 255^2) ≈ 441
-                const avgDiff = totalDiff / pixels;
-                const maxDiff = 441;
-                const similarity = 1 - (avgDiff / maxDiff);
-                
-                return Math.max(0, similarity);
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const brightness = (r + g + b) / 3;
+            
+            if (brightness > 200) {
+                histogram.white++;
+            } else if (r > 100 && r > g * 1.3 && r > b * 1.3) {
+                histogram.red++;
+            } else if (brightness < 100) {
+                histogram.black++;
             }
         }
-
-        // ==================== ПРИЛОЖЕНИЕ ====================
         
-        class App {
-            constructor() {
-                this.video = document.getElementById('video');
-                this.canvas = document.getElementById('canvas');
-                this.ctx = this.canvas.getContext('2d');
-                this.loader = document.getElementById('loader');
+        const totalColored = histogram.red + histogram.black;
+        histogram.redRatio = totalColored > 0 ? histogram.red / totalColored : 0;
+        
+        return histogram;
+    }
+
+    buildEdgeMap(imageData) {
+        const { data, width, height } = imageData;
+        const edges = new Uint8Array(width * height);
+        
+        // Простой детектор краёв (Sobel упрощённый)
+        for (let y = 1; y < height - 1; y++) {
+            for (let x = 1; x < width - 1; x++) {
+                const idx = y * width + x;
                 
-                this.recognizer = new TemplateRecognizer();
-                this.stream = null;
-                this.facingMode = 'environment';
-                this.debugMode = false;
-                this.autoMode = false;
-                this.autoInterval = null;
-                
-                this.init();
-            }
-
-            async init() {
-                try {
-                    // Загружаем шаблоны
-                    const loadResult = await this.recognizer.loadTemplates();
-                    
-                    if (!loadResult.success) {
-                        throw new Error('Не удалось загрузить шаблоны');
-                    }
-                    
-                    this.log(`✓ Загружено ${loadResult.loaded}/${loadResult.total} шаблонов`, 'ok');
-                    
-                    // Запускаем камеру
-                    await this.startCamera();
-                    this.setupCanvas();
-                    this.setupControls();
-                    
-                    this.loader.style.display = 'none';
-                    this.setStatus('Готово к работе');
-                    
-                } catch (err) {
-                    alert('Ошибка: ' + err.message + '\n\nПроверьте, что папка templates/ находится рядом с HTML файлом!');
-                    this.loader.style.display = 'none';
-                }
-            }
-
-            async startCamera() {
-                this.stream = await navigator.mediaDevices.getUserMedia({
-                    video: { ...CONFIG.video, facingMode: this.facingMode }
-                });
-                this.video.srcObject = this.stream;
-                await new Promise(resolve => this.video.onloadedmetadata = resolve);
-            }
-
-            setupCanvas() {
-                this.canvas.width = CONFIG.canvas.width;
-                this.canvas.height = CONFIG.canvas.height;
-            }
-
-            setupControls() {
-                document.getElementById('recognizeBtn').onclick = () => this.recognize();
-                
-                document.getElementById('autoBtn').onclick = () => {
-                    this.autoMode = !this.autoMode;
-                    const btn = document.getElementById('autoBtn');
-                    btn.classList.toggle('on', this.autoMode);
-                    btn.textContent = this.autoMode ? '⏸ Стоп' : '🔄 Авто';
-                    
-                    if (this.autoMode) {
-                        this.log('Авто режим ВКЛ', 'ok');
-                        this.autoInterval = setInterval(() => this.recognize(), 2000);
-                    } else {
-                        this.log('Авто режим ВЫКЛ');
-                        clearInterval(this.autoInterval);
-                    }
+                // Берём яркость 9 соседних пикселей
+                const getGray = (dx, dy) => {
+                    const i = ((y + dy) * width + (x + dx)) * 4;
+                    return (data[i] + data[i + 1] + data[i + 2]) / 3;
                 };
                 
-                document.getElementById('debugBtn').onclick = () => {
-                    this.debugMode = !this.debugMode;
-                    document.getElementById('debugPanel').classList.toggle('show', this.debugMode);
-                    document.getElementById('debugBtn').classList.toggle('on', this.debugMode);
-                };
+                const gx = 
+                    -1 * getGray(-1, -1) + 1 * getGray(1, -1) +
+                    -2 * getGray(-1, 0)  + 2 * getGray(1, 0) +
+                    -1 * getGray(-1, 1)  + 1 * getGray(1, 1);
                 
-                document.getElementById('switchBtn').onclick = async () => {
-                    this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
-                    this.stream.getTracks().forEach(t => t.stop());
-                    await this.startCamera();
-                };
-            }
-
-            async recognize() {
-                const btn = document.getElementById('recognizeBtn');
-                const zone = document.getElementById('scanZone');
+                const gy = 
+                    -1 * getGray(-1, -1) - 2 * getGray(0, -1) - 1 * getGray(1, -1) +
+                     1 * getGray(-1, 1)  + 2 * getGray(0, 1)  + 1 * getGray(1, 1);
                 
-                btn.textContent = '⏳';
-                zone.classList.add('active');
-                this.setStatus('Анализ...');
-                
-                await new Promise(r => setTimeout(r, 100));
-                
-                this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
-                const scanData = this.getScanData();
-                
-                const result = await this.recognizer.recognizeCard(scanData);
-                
-                if (this.debugMode && result.debug) {
-                    let html = '';
-                    for (let k in result.debug) {
-                        html += `<div class="dbg-line">${k}: ${result.debug[k]}</div>`;
-                    }
-                    document.getElementById('debugInfo').innerHTML = html;
-                }
-                
-                btn.textContent = '🎯 Распознать';
-                zone.classList.remove('active');
-                
-                if (result.error) {
-                    zone.classList.add('error');
-                    setTimeout(() => zone.classList.remove('error'), 600);
-                    this.setStatus(result.error, 'error');
-                    this.log('✗ ' + result.error, 'err');
-                } else {
-                    this.showResult(result);
-                    this.setStatus('Распознано!', 'ok');
-                    this.log(`✓ ${result.name} (${result.confidence}%)`, 'ok');
-                    if (navigator.vibrate) navigator.vibrate([40, 20, 40]);
-                }
-            }
-
-            getScanData() {
-                const w = this.canvas.width;
-                const h = this.canvas.height;
-                const sw = Math.floor(w * CONFIG.scanArea.widthRatio);
-                const sh = Math.floor(h * CONFIG.scanArea.heightRatio);
-                const sx = Math.floor((w - sw) / 2);
-                const sy = Math.floor((h - sh) / 2);
-                
-                return this.ctx.getImageData(sx, sy, sw, sh);
-            }
-
-            showResult(card) {
-                const suitInfo = CARDS[card.suit] || { name: '?', class: '' };
-                
-                document.getElementById('cardSymbol').textContent = `${card.rank}${card.suit}`;
-                document.getElementById('cardSymbol').className = suitInfo.class;
-                document.getElementById('cardTitle').textContent = card.name;
-                
-                const box = document.getElementById('resultCard');
-                box.classList.add('show');
-                setTimeout(() => box.classList.remove('show'), 3000);
-            }
-
-            setStatus(text, type = '') {
-                const el = document.getElementById('statusBar');
-                el.textContent = text;
-                el.className = type;
-            }
-
-            log(text, type = '') {
-                const box = document.getElementById('historyLog');
-                const line = document.createElement('div');
-                line.className = 'log-line' + (type ? ' log-' + type : '');
-                line.textContent = new Date().toLocaleTimeString().slice(-8) + ' ' + text;
-                box.insertBefore(line, box.firstChild);
-                while (box.children.length > 5) box.removeChild(box.lastChild);
+                const magnitude = Math.sqrt(gx * gx + gy * gy);
+                edges[idx] = magnitude > 50 ? 1 : 0;
             }
         }
+        
+        // Считаем количество краёв
+        let edgeCount = 0;
+        for (let i = 0; i < edges.length; i++) {
+            if (edges[i]) edgeCount++;
+        }
+        
+        return {
+            map: edges,
+            count: edgeCount,
+            density: edgeCount / (width * height)
+        };
+    }
 
-        window.onload = () => new App();
-    </script>
+    buildDensityMap(imageData) {
+        const { data, width, height } = imageData;
+        
+        // Делим на 9 зон (3x3)
+        const zones = Array(9).fill(0);
+        const zoneW = Math.floor(width / 3);
+        const zoneH = Math.floor(height / 3);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                
+                if (brightness < 150) { // Тёмный пиксель
+                    const zoneX = Math.min(Math.floor(x / zoneW), 2);
+                    const zoneY = Math.min(Math.floor(y / zoneH), 2);
+                    const zoneIdx = zoneY * 3 + zoneX;
+                    zones[zoneIdx]++;
+                }
+            }
+        }
+        
+        // Нормализуем
+        const zoneSize = zoneW * zoneH;
+        return zones.map(count => count / zoneSize);
+    }
+
+    downscaleImage(imageData, targetW, targetH) {
+        const { data, width, height } = imageData;
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+        
+        const small = document.createElement('canvas');
+        small.width = targetW;
+        small.height = targetH;
+        const smallCtx = small.getContext('2d');
+        smallCtx.drawImage(canvas, 0, 0, targetW, targetH);
+        
+        return smallCtx.getImageData(0, 0, targetW, targetH);
+    }
+
+    async recognizeCard(imageData) {
+        const debug = {};
+        
+        if (!this.ready) {
+            return { error: 'Шаблоны не загружены', debug };
+        }
+
+        try {
+            // 1. Проверка белого фона
+            const hasCard = this.detectWhiteBackground(imageData);
+            debug.white = (hasCard.ratio * 100).toFixed(0) + '%';
+            
+            if (!hasCard.detected) {
+                return { error: 'Карта не видна', debug };
+            }
+
+            // 2. Стандартизируем размер карты
+            const standardized = this.standardizeCard(imageData);
+            
+            // 3. Извлекаем признаки
+            const features = this.extractFeaturesFromImageData(standardized);
+            debug.red = features.colorHistogram.red;
+            debug.black = features.colorHistogram.black;
+            debug.edges = features.edgeMap.count;
+            
+            // 4. Сравниваем с каждым шаблоном
+            let matches = [];
+            
+            for (let template of this.templates) {
+                const score = this.compareFeatures(features, template.features);
+                matches.push({
+                    template: template,
+                    score: score
+                });
+            }
+            
+            // Сортируем по убыванию
+            matches.sort((a, b) => b.score - a.score);
+            
+            const best = matches[0];
+            const second = matches[1];
+            
+            debug.bestCard = best.template.name;
+            debug.bestScore = (best.score * 100).toFixed(1) + '%';
+            debug.secondCard = second.template.name;
+            debug.secondScore = (second.score * 100).toFixed(1) + '%';
+            debug.diff = ((best.score - second.score) * 100).toFixed(1) + '%';
+            
+            // Порог: нужно минимум 70% совпадение И разница со вторым > 5%
+            if (best.score < 0.70) {
+                return { error: 'Совпадение слабое', debug };
+            }
+            
+            if (best.score - second.score < 0.05) {
+                return { error: 'Неоднозначно', debug };
+            }
+            
+            return {
+                rank: best.template.rank,
+                suit: best.template.suit,
+                name: best.template.name,
+                confidence: Math.round(best.score * 100),
+                debug: debug
+            };
+            
+        } catch (error) {
+            console.error('Recognition error:', error);
+            return { error: error.message, debug };
+        }
+    }
+
+    detectWhiteBackground(imageData) {
+        const { data, width, height } = imageData;
+        let whitePixels = 0;
+        const total = width * height;
+        const step = 4;
+        
+        for (let i = 0; i < data.length; i += 4 * step) {
+            const r = data[i], g = data[i + 1], b = data[i + 2];
+            const brightness = (r + g + b) / 3;
+            const variance = Math.abs(r - g) + Math.abs(g - b) + Math.abs(b - r);
+            
+            if (brightness > 170 && variance < 50) {
+                whitePixels++;
+            }
+        }
+        
+        const ratio = (whitePixels * step) / total;
+        return {
+            detected: ratio > 0.15 && ratio < 0.90,
+            ratio: ratio
+        };
+    }
+
+    standardizeCard(imageData) {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = 150;
+        canvas.height = 200;
+        
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        ctx.drawImage(tempCanvas, 0, 0, 150, 200);
+        
+        return canvas;
+    }
+
+    extractFeaturesFromImageData(canvas) {
+        const ctx = canvas.getContext('2d');
+        const cornerSize = 60;
+        const cornerData = ctx.getImageData(0, 0, cornerSize, cornerSize);
+        
+        return {
+            colorHistogram: this.buildColorHistogram(cornerData),
+            edgeMap: this.buildEdgeMap(cornerData),
+            densityMap: this.buildDensityMap(cornerData),
+            rawCorner: this.downscaleImage(cornerData, 30, 30)
+        };
+    }
+
+    compareFeatures(features1, features2) {
+        let totalScore = 0;
+        let weights = 0;
+        
+        // 1. Сравнение цветов (вес: 30%)
+        const colorScore = this.compareColorHistograms(
+            features1.colorHistogram,
+            features2.colorHistogram
+        );
+        totalScore += colorScore * 0.30;
+        weights += 0.30;
+        
+        // 2. Сравнение краёв (вес: 25%)
+        const edgeScore = this.compareEdgeMaps(
+            features1.edgeMap,
+            features2.edgeMap
+        );
+        totalScore += edgeScore * 0.25;
+        weights += 0.25;
+        
+        // 3. Сравнение плотности по зонам (вес: 25%)
+        const densityScore = this.compareDensityMaps(
+            features1.densityMap,
+            features2.densityMap
+        );
+        totalScore += densityScore * 0.25;
+        weights += 0.25;
+        
+        // 4. Попиксельное сравнение уменьшенных углов (вес: 20%)
+        const pixelScore = this.comparePixels(
+            features1.rawCorner,
+            features2.rawCorner
+        );
+        totalScore += pixelScore * 0.20;
+        weights += 0.20;
+        
+        return totalScore / weights;
+    }
+
+    compareColorHistograms(h1, h2) {
+        // Сравниваем соотношение красного к чёрному
+        const diff = Math.abs(h1.redRatio - h2.redRatio);
+        const score = 1 - diff;
+        
+        return Math.max(0, score);
+    }
+
+    compareEdgeMaps(e1, e2) {
+        // Сравниваем количество краёв
+        const diff = Math.abs(e1.density - e2.density);
+        const score = 1 - (diff * 5); // Умножаем на 5 для чувствительности
+        
+        return Math.max(0, Math.min(1, score));
+    }
+
+    compareDensityMaps(d1, d2) {
+        // Сравниваем плотность по каждой зоне
+        let totalDiff = 0;
+        
+        for (let i = 0; i < 9; i++) {
+            totalDiff += Math.abs(d1[i] - d2[i]);
+        }
+        
+        const avgDiff = totalDiff / 9;
+        const score = 1 - (avgDiff * 2); // Умножаем на 2 для чувствительности
+        
+        return Math.max(0, Math.min(1, score));
+    }
+
+    comparePixels(img1, img2) {
+        const data1 = img1.data;
+        const data2 = img2.data;
+        
+        let totalDiff = 0;
+        const pixels = data1.length / 4;
+        
+        for (let i = 0; i < data1.length; i += 4) {
+            const r1 = data1[i], g1 = data1[i + 1], b1 = data1[i + 2];
+            const r2 = data2[i], g2 = data2[i + 1], b2 = data2[i + 2];
+            
+            // Евклидово расстояние
+            const diff = Math.sqrt(
+                Math.pow(r1 - r2, 2) +
+                Math.pow(g1 - g2, 2) +
+                Math.pow(b1 - b2, 2)
+            );
+            
+            totalDiff += diff;
+        }
+        
+        const avgDiff = totalDiff / pixels;
+        const maxDiff = 441; // sqrt(255^2 * 3)
+        const similarity = 1 - (avgDiff / maxDiff);
+        
+        return Math.max(0, similarity);
+    }
+}
+
+// ==================== ПРИЛОЖЕНИЕ ====================
+
+class App {
+    constructor() {
+        this.video = document.getElementById('video');
+        this.canvas = document.getElementById('canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.loader = document.getElementById('loader');
+        
+        this.recognizer = new TemplateRecognizer();
+        this.stream = null;
+        this.facingMode = 'environment';
+        this.debugMode = false;
+        this.autoMode = false;
+        this.autoInterval = null;
+        
+        this.init();
+    }
+
+    async init() {
+        try {
+            const loadResult = await this.recognizer.loadTemplates();
+            
+            if (!loadResult.success) {
+                throw new Error('Не удалось загрузить шаблоны');
+            }
+            
+            this.log(`✓ Загружено ${loadResult.loaded}/${loadResult.total}`, 'ok');
+            
+            await this.startCamera();
+            this.setupCanvas();
+            this.setupControls();
+            
+            this.loader.style.display = 'none';
+            this.setStatus('Готово');
+            
+        } catch (err) {
+            alert('Ошибка: ' + err.message + '\n\nПроверьте папку templates/');
+            this.loader.style.display = 'none';
+        }
+    }
+
+    async startCamera() {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+            video: { ...CONFIG.video, facingMode: this.facingMode }
+        });
+        this.video.srcObject = this.stream;
+        await new Promise(resolve => this.video.onloadedmetadata = resolve);
+    }
+
+    setupCanvas() {
+        this.canvas.width = CONFIG.canvas.width;
+        this.canvas.height = CONFIG.canvas.height;
+    }
+
+    setupControls() {
+        document.getElementById('recognizeBtn').onclick = () => this.recognize();
+        
+        document.getElementById('autoBtn').onclick = () => {
+            this.autoMode = !this.autoMode;
+            const btn = document.getElementById('autoBtn');
+            btn.classList.toggle('on', this.autoMode);
+            btn.textContent = this.autoMode ? '⏸ Стоп' : '🔄 Авто';
+            
+            if (this.autoMode) {
+                this.log('Авто ВКЛ', 'ok');
+                this.autoInterval = setInterval(() => this.recognize(), 2000);
+            } else {
+                this.log('Авто ВЫКЛ');
+                clearInterval(this.autoInterval);
+            }
+        };
+        
+        document.getElementById('debugBtn').onclick = () => {
+            this.debugMode = !this.debugMode;
+            document.getElementById('debugPanel').classList.toggle('show', this.debugMode);
+            document.getElementById('debugBtn').classList.toggle('on', this.debugMode);
+        };
+        
+        document.getElementById('switchBtn').onclick = async () => {
+            this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
+            this.stream.getTracks().forEach(t => t.stop());
+            await this.startCamera();
+        };
+    }
+
+    async recognize() {
+        const btn = document.getElementById('recognizeBtn');
+        const zone = document.getElementById('scanZone');
+        
+        btn.textContent = '⏳';
+        zone.classList.add('active');
+        this.setStatus('Анализ...');
+        
+        await new Promise(r => setTimeout(r, 100));
+        
+        this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+        const scanData = this.getScanData();
+        
+        const result = await this.recognizer.recognizeCard(scanData);
+        
+        if (this.debugMode && result.debug) {
+            let html = '';
+            for (let k in result.debug) {
+                html += `<div class="dbg-line">${k}: ${result.debug[k]}</div>`;
+            }
+            document.getElementById('debugInfo').innerHTML = html;
+        }
+        
+        btn.textContent = '🎯 Распознать';
+        zone.classList.remove('active');
+        
+        if (result.error) {
+            zone.classList.add('error');
+            setTimeout(() => zone.classList.remove('error'), 600);
+            this.setStatus(result.error, 'error');
+            this.log('✗ ' + result.error, 'err');
+        } else {
+            this.showResult(result);
+            this.setStatus('✓ ' + result.name, 'ok');
+            this.log(`✓ ${result.name} (${result.confidence}%)`, 'ok');
+            if (navigator.vibrate) navigator.vibrate([40, 20, 40]);
+        }
+    }
+
+    getScanData() {
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        const sw = Math.floor(w * CONFIG.scanArea.widthRatio);
+        const sh = Math.floor(h * CONFIG.scanArea.heightRatio);
+        const sx = Math.floor((w - sw) / 2);
+        const sy = Math.floor((h - sh) / 2);
+        
+        return this.ctx.getImageData(sx, sy, sw, sh);
+    }
+
+    showResult(card) {
+        const suitInfo = CARDS[card.suit] || { name: '?', class: '' };
+        
+        document.getElementById('cardSymbol').textContent = `${card.rank}${card.suit}`;
+        document.getElementById('cardSymbol').className = suitInfo.class;
+        document.getElementById('cardTitle').textContent = card.name;
+        
+        const box = document.getElementById('resultCard');
+        box.classList.add('show');
+        setTimeout(() => box.classList.remove('show'), 3000);
+    }
+
+    setStatus(text, type = '') {
+        const el = document.getElementById('statusBar');
+        el.textContent = text;
+        el.className = type;
+    }
+
+    log(text, type = '') {
+        const box = document.getElementById('historyLog');
+        const line = document.createElement('div');
+        line.className = 'log-line' + (type ? ' log-' + type : '');
+        line.textContent = new Date().toLocaleTimeString().slice(-8) + ' ' + text;
+        box.insertBefore(line, box.firstChild);
+        while (box.children.length > 5) box.removeChild(box.lastChild);
+    }
+}
+
+window.onload = () => new App();
 </body>
 </html>
