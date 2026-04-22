@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Card Scanner Pro</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --bg: #0f172a;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            background: #000;
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Видео и интерфейс */
+        #viewport {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Рамка сканера */
+        #scanner-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.5);
+        }
+
+        .guide-box {
+            width: 200px;
+            height: 280px;
+            border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 16px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .guide-box.active { border-color: var(--success); box-shadow: 0 0 20px var(--success); border-width: 3px; }
+        .guide-box.error { border-color: var(--danger); }
+
+        .corner-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: 60px;
+            height: 80px;
+            border: 1px dashed rgba(255,255,255,0.8);
+            border-radius: 4px;
+            font-size: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: rgba(255,255,255,0.8);
+        }
+
+        /* Кнопки управления */
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 0;
+            right: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            padding: 0 20px;
+        }
+
+        .btn-group { display: flex; gap: 10px; width: 100%; max-width: 300px; }
+
+        button {
+            padding: 14px 24px;
+            border-radius: 50px;
+            border: none;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: 0.2s;
+            flex: 1;
+        }
+
+        #scan-btn { background: var(--primary); color: white; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); }
+        #auto-btn { background: rgba(255,255,255,0.15); color: white; backdrop-filter: blur(10px); }
+        #auto-btn.active { background: var(--success); }
+
+        /* Результат */
+        #result-popup {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            background: white;
+            color: black;
+            padding: 12px 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            opacity: 0;
+            transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #result-popup.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        
+        .card-val { font-size: 24px; font-weight: 800; }
+        .red { color: #e11d48; }
+
+        /* Отладка */
+        #debug-canvas {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 80px;
+            height: 110px;
+            border: 2px solid white;
+            background: #000;
+            display: none;
+        }
+
+        #status-bar {
+            position: absolute;
+            bottom: 120px;
+            background: rgba(0,0,0,0.6);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 11px;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="viewport">
+        <video id="video" autoplay playsinline></video>
+        
+        <div id="scanner-overlay">
+            <div id="result-popup">
+                <span class="card-val" id="res-symbol">?</span>
+                <span id="res-name">Сканирование...</span>
+            </div>
+
+            <div class="guide-box" id="guide">
+                <div class="corner-label">УГОЛ КАРТЫ</div>
+            </div>
+
+            <div id="status-bar">Наведите камеру на карту</div>
+
+            <div class="controls">
+                <div class="btn-group">
+                    <button id="scan-btn">🎯 Распознать</button>
+                    <button id="auto-btn">🔄 Авто</button>
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <span onclick="toggleDebug()" style="font-size: 20px; cursor:pointer;">🐛</span>
+                    <span onclick="switchCamera()" style="font-size: 20px; cursor:pointer;">📷</span>
+                </div>
+            </div>
+        </div>
+
+        <canvas id="debug-canvas"></canvas>
+    </div>
+
+    <!-- Скрытый холст для обработки -->
+    <canvas id="proc-canvas" style="display:none;"></canvas>
+
+    <script>
+        const CONFIG = {
+            templates: [
+                { id: '7h', rank: '7', suit: '♥', name: '7 Червей', file: '7h.jpg', color: 'red' },
+                { id: '8p', rank: '8', suit: '♠', name: '8 Пик', file: '8p.jpg', color: 'black' },
+                { id: '9tr', rank: '9', suit: '♣', name: '9 Треф', file: '9tr.jpg', color: 'black' },
+                { id: '10b', rank: '10', suit: '♦', name: '10 Бубен', file: '10b.jpg', color: 'red' },
+                { id: 'dh', rank: 'Q', suit: '♥', name: 'Дама Червей', file: 'dh.jpg', color: 'red' },
+                { id: 'kp', rank: 'K', suit: '♠', name: 'Король Пик', file: 'kp.jpg', color: 'black' },
+                { id: 'tb', rank: 'A', suit: '♦', name: 'Туз Бубен', file: 'tb.jpg', color: 'red' },
+                { id: 'vtr', rank: 'J', suit: '♣', name: 'Валет Треф', file: 'vtr.jpg', color: 'black' }
+            ],
+            cornerSize: { w: 60, h: 90 } // Размер области с мастью и цифрой
+        };
+
+        let loadedTemplates = [];
+        let isAuto = false;
+        let currentFacingMode = 'environment';
+        let debugEnabled = false;
+
+        const video = document.getElementById('video');
+        const procCanvas = document.getElementById('proc-canvas');
+        const debugCanvas = document.getElementById('debug-canvas');
+        const pCtx = procCanvas.getContext('2d', { willReadFrequently: true });
+
+        // --- Инициализация ---
+        async function init() {
+            try {
+                await loadTemplates();
+                await startCamera();
+                setupEvents();
+                logStatus('Готово к работе');
+            } catch (err) {
+                logStatus('Ошибка: ' + err.message, true);
+            }
+        }
+
+        async function loadTemplates() {
+            logStatus('Загрузка шаблонов...');
+            const promises = CONFIG.templates.map(t => {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = () => {
+                        // Создаем бинарную маску для каждого шаблона
+                        const mask = createBinaryMask(img);
+                        resolve({ ...t, mask });
+                    };
+                    img.onerror = () => {
+                        console.error('Не найден файл:', t.file);
+                        resolve(null);
+                    };
+                    img.src = `templates/${t.file}`;
+                });
+            });
+            loadedTemplates = (await Promise.all(promises)).filter(t => t !== null);
+            logStatus(`Загружено ${loadedTemplates.length} карт`);
+        }
+
+        async function startCamera() {
+            if (window.stream) window.stream.getTracks().forEach(t => t.stop());
+            const constraints = {
+                video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+            };
+            window.stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = window.stream;
+        }
+
+        // --- Обработка изображения ---
+
+        function createBinaryMask(img) {
+            const canvas = document.createElement('canvas');
+            canvas.width = CONFIG.cornerSize.w;
+            canvas.height = CONFIG.cornerSize.h;
+            const ctx = canvas.getContext('2d');
+            
+            // Рисуем и берем левый верхний угол (там цифра и масть)
+            ctx.drawImage(img, 0, 0, CONFIG.cornerSize.w, CONFIG.cornerSize.h);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            return applyThreshold(imgData);
+        }
+
+        function applyThreshold(imgData) {
+            const data = imgData.data;
+            const result = new Uint8Array(data.length / 4);
+            
+            // 1. Считаем среднюю яркость для адаптивного порога
+            let totalBrightness = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                totalBrightness += (data[i] + data[i+1] + data[i+2]) / 3;
+            }
+            const avg = totalBrightness / (data.length / 4);
+            const threshold = avg * 0.85; // Немного темнее среднего
+
+            // 2. Бинаризация
+            for (let i = 0; i < data.length; i += 4) {
+                const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
+                result[i/4] = brightness < threshold ? 1 : 0; // 1 - черный (текст), 0 - белый
+            }
+            return result;
+        }
+
+        async function recognize() {
+            if (loadedTemplates.length === 0) return;
+
+            const guide = document.getElementById('guide');
+            const rect = guide.getBoundingClientRect();
+            
+            // Настройка канваса под текущий кадр
+            procCanvas.width = video.videoWidth;
+            procCanvas.height = video.videoHeight;
+            pCtx.drawImage(video, 0, 0);
+
+            // Вырезаем только область "УГОЛ КАРТЫ"
+            // Считаем координаты относительно видео
+            const scale = video.videoWidth / video.offsetWidth;
+            const cropX = (rect.left + 10) * scale;
+            const cropY = (rect.top + 10) * scale;
+            const cropW = CONFIG.cornerSize.w * scale;
+            const cropH = CONFIG.cornerSize.h * scale;
+
+            const cornerData = pCtx.getImageData(cropX, cropY, cropW, cropH);
+            
+            // Уменьшаем до размера шаблона для сравнения
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = CONFIG.cornerSize.w;
+            tempCanvas.height = CONFIG.cornerSize.h;
+            const tCtx = tempCanvas.getContext('2d');
+            
+            const tempImg = await createImageBitmap(cornerData);
+            tCtx.drawImage(tempImg, 0, 0, CONFIG.cornerSize.w, CONFIG.cornerSize.h);
+            
+            const finalData = tCtx.getImageData(0, 0, CONFIG.cornerSize.w, CONFIG.cornerSize.h);
+            const capturedMask = applyThreshold(finalData);
+
+            // Отрисовка в дебаг
+            if (debugEnabled) {
+                debugCanvas.style.display = 'block';
+                debugCanvas.width = CONFIG.cornerSize.w;
+                debugCanvas.height = CONFIG.cornerSize.h;
+                const dCtx = debugCanvas.getContext('2d');
+                const dImg = dCtx.createImageData(CONFIG.cornerSize.w, CONFIG.cornerSize.h);
+                for(let i=0; i<capturedMask.length; i++) {
+                    const v = capturedMask[i] === 1 ? 0 : 255;
+                    dImg.data[i*4] = v; dImg.data[i*4+1] = v; dImg.data[i*4+2] = v; dImg.data[i*4+3] = 255;
+                }
+                dCtx.putImageData(dImg, 0, 0);
+            }
+
+            // Сравнение
+            let bestMatch = null;
+            let maxScore = 0;
+
+            loadedTemplates.forEach(tpl => {
+                let score = 0;
+                for (let i = 0; i < tpl.mask.length; i++) {
+                    // Если в шаблоне черный пиксель и у нас черный - это совпадение
+                    if (tpl.mask[i] === 1 && capturedMask[i] === 1) score++;
+                    // Если оба белые - тоже совпадение (но менее значимое)
+                    if (tpl.mask[i] === 0 && capturedMask[i] === 0) score += 0.2;
+                }
+                
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestMatch = tpl;
+                }
+            });
+
+            // Порог уверенности
+            if (bestMatch && maxScore > 500) {
+                showResult(bestMatch);
+                guide.classList.add('active');
+                setTimeout(() => guide.classList.remove('active'), 500);
+            } else {
+                logStatus('Карта не узнана');
+            }
+        }
+
+        // --- UI ---
+
+        function showResult(card) {
+            const popup = document.getElementById('result-popup');
+            const sym = document.getElementById('res-symbol');
+            const name = document.getElementById('res-name');
+            
+            sym.textContent = card.rank + card.suit;
+            sym.className = 'card-val ' + card.color;
+            name.textContent = card.name;
+            
+            popup.classList.add('show');
+            if (navigator.vibrate) navigator.vibrate(50);
+            
+            setTimeout(() => popup.classList.remove('show'), 2500);
+        }
+
+        function logStatus(txt, isErr = false) {
+            const el = document.getElementById('status-bar');
+            el.textContent = txt;
+            el.style.color = isErr ? '#ff4444' : '#ccc';
+        }
+
+        function toggleDebug() {
+            debugEnabled = !debugEnabled;
+            debugCanvas.style.display = debugEnabled ? 'block' : 'none';
+        }
+
+        async function switchCamera() {
+            currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+            await startCamera();
+        }
+
+        function setupEvents() {
+            document.getElementById('scan-btn').onclick = () => recognize();
+            
+            const autoBtn = document.getElementById('auto-btn');
+            autoBtn.onclick = () => {
+                isAuto = !isAuto;
+                autoBtn.classList.toggle('active');
+                autoBtn.textContent = isAuto ? '⏸ Стоп' : '🔄 Авто';
+                if (isAuto) runAuto();
+            };
+        }
+
+        async function runAuto() {
+            if (!isAuto) return;
+            await recognize();
+            setTimeout(runAuto, 800);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
