@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+  <title>Распознавание карт v3 (templates + ROI mapping)</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+    html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background:#000; }
+
+    #container { position:relative; width:100vw; height:100vh; height:100dvh; }
+    #video { width:100%; height:100%; object-fit:cover; }
+    #canvas { display:none; }
+
+    /* Верх: зона сканирования */
+    #topArea{
+      position:absolute; top:0; left:0; right:0;
+      padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px;
+      z-index:10;
+    }
+    #scanZone{
+      width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.7);
+      flex-shrink:0; position:relative;
+    }
+    #scanZone::before{
+      content:'📍 Наведите карту сюда';
+      position:absolute; bottom:-25px; left:50%; transform:translateX(-50%);
+      color:#4CAF50; font-size:11px; white-space:nowrap;
+    }
+    #scanZone.active { border-color:#FFC107; animation: glow 0.6s infinite; }
+    #scanZone.active::before { color:#FFC107; content:'🔍 Сканирование...'; }
+    #scanZone.error { border-color:#f44336; animation: shake 0.4s; }
+    #scanZone.error::before { color:#f44336; content:'❌ Не распознано'; }
+
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; }
+      50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; }
+    }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+
+    #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
+    .ctrl-btn{
+      width:40px; height:40px; border-radius:50%;
+      background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3);
+      color:white; font-size:18px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; transition:0.2s;
+    }
+    .ctrl-btn:active { transform:scale(0.9); }
+    .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
+
+    /* Центр: результат */
+    #resultCard{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.9);
+      background:rgba(255,255,255,0.98); border-radius:16px; padding:20px 30px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
+      opacity:0; transition:0.3s; z-index:100;
+    }
+    #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    #cardSymbol { font-size:72px; font-weight:bold; line-height:1; }
+    #cardTitle { font-size:16px; color:#555; margin-top:8px; font-weight:500; }
+    #cardConfidence { font-size:11px; color:#888; margin-top:4px; }
+    .red{ color:#e53935; } .black{ color:#212121; }
+
+    /* Статус */
+    #statusBar{
+      position:absolute; top:320px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.85); color:white;
+      padding:6px 14px; border-radius:12px; font-size:11px; max-width:90%; text-align:center;
+      z-index:10;
+    }
+    #statusBar.error { background: rgba(244,67,54,0.95); }
+    #statusBar.ok { background: rgba(76,175,80,0.95); }
+
+    /* Подсказка */
+    #hint{
+      position:absolute; bottom:150px; left:50%; transform:translateX(-50%);
+      background:rgba(255,255,255,0.95); color:#333;
+      padding:8px 16px; border-radius:20px; font-size:11px;
+      z-index:5; text-align:center; max-width:80%;
+    }
+
+    /* Низ */
+    #bottomArea{
+      position:absolute; bottom:0; left:0; right:0;
+      padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
+      display:flex; flex-direction:column; gap:8px; align-items:center;
+      background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+      z-index:10;
+    }
+    #historyLog{
+      background:rgba(0,0,0,0.7); border-radius:8px; padding:6px 10px;
+      width:100%; max-width:320px; max-height:50px; overflow-y:auto;
+      font-family:monospace; font-size:9px; color:#0f0;
+    }
+    .log-line{ margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .log-err{ color:#f44336; } .log-ok{ color:#4CAF50; }
+
+    #actionButtons{ display:flex; gap:8px; width:100%; max-width:320px; }
+    .action-btn{
+      flex:1; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%);
+      color:white; border:none; padding:14px 0; border-radius:20px;
+      font-size:14px; font-weight:600; box-shadow:0 4px 15px rgba(102,126,234,0.5);
+      cursor:pointer; transition:0.2s;
+    }
+    .action-btn:active { transform:scale(0.96); }
+    .action-btn.auto{
+      background:linear-gradient(135deg,#FFC107 0%, #FF9800 100%);
+      box-shadow:0 4px 15px rgba(255,193,7,0.5);
+    }
+    .action-btn.auto.on { background:linear-gradient(135deg,#4CAF50 0%, #43A047 100%); }
+
+    /* Settings */
+    #settingsPanel{
+      position:absolute; top:50%; right:10px; transform:translateY(-50%);
+      background:rgba(0,0,0,0.9); border-radius:10px; padding:10px;
+      z-index:10; display:none;
+    }
+    #settingsPanel.show{ display:block; }
+    .settings-title{ color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:6px; text-align:center; }
+    .settings-item{ margin:4px 0; }
+    .settings-label{ color:#aaa; font-size:8px; display:block; margin-bottom:2px; }
+    .settings-value{ color:#0f0; font-size:9px; font-family:monospace; }
+
+    /* Debug */
+    #debugPanel{
+      position:absolute; top:50%; left:10px; transform:translateY(-50%);
+      background:rgba(0,0,0,0.9); border-radius:10px; padding:10px;
+      font-family:monospace; font-size:8px; color:#0f0;
+      max-width:180px; display:none; z-index:10;
+    }
+    #debugPanel.show{ display:block; }
+    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.1); }
+
+    /* Loader */
+    #loader{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      text-align:center; color:white; background:rgba(0,0,0,0.95);
+      padding:30px; border-radius:16px; z-index:999; min-width:220px;
+    }
+    .spin{
+      border:4px solid rgba(255,255,255,0.3); border-top:4px solid #667eea;
+      border-radius:50%; width:40px; height:40px; animation: rotate 1s linear infinite;
+      margin:0 auto 15px;
+    }
+    @keyframes rotate { to { transform:rotate(360deg); } }
+    #loaderText{ font-size:13px; margin-bottom:8px; }
+    #loaderSubtext{ font-size:10px; color:#888; }
+
+    #historyLog::-webkit-scrollbar{ width:3px; }
+    #historyLog::-webkit-scrollbar-thumb{ background:#4CAF50; border-radius:2px; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="topArea">
+    <div id="scanZone"></div>
+    <div id="ctrlButtons">
+      <div class="ctrl-btn" id="debugBtn" title="Отладка">🐛</div>
+      <div class="ctrl-btn" id="settingsBtn" title="Настройки">⚙️</div>
+      <div class="ctrl-btn" id="switchBtn" title="Камера">📷</div>
+    </div>
+  </div>
+
+  <div id="resultCard">
+    <div id="cardSymbol">?</div>
+    <div id="cardTitle">Ожидание...</div>
+    <div id="cardConfidence"></div>
+  </div>
+
+  <div id="statusBar">Наведите камеру на карту</div>
+  <div id="hint">Держите карту строго внутри рамки. Лучше без бликов и под небольшим уменьшением яркости монитора.</div>
+
+  <div id="bottomArea">
+    <div id="historyLog"></div>
+    <div id="actionButtons">
+      <button class="action-btn" id="recognizeBtn">🎯 Распознать</button>
+      <button class="action-btn auto" id="autoBtn">🔄 Авто</button>
+    </div>
+  </div>
+
+  <div id="settingsPanel">
+    <div class="settings-title">⚙️ НАСТРОЙКИ</div>
+    <div class="settings-item">
+      <span class="settings-label">Шаблонный размер (норм.):</span>
+      <span class="settings-value" id="normSizeValue">200×280</span>
+    </div>
+    <div class="settings-item">
+      <span class="settings-label">ROI угол (%):</span>
+      <span class="settings-value" id="cornerValue">35% × 35%</span>
+    </div>
+    <div class="settings-item">
+      <span class="settings-label">Шаблонов:</span>
+      <span class="settings-value" id="templatesValue">0/8</span>
+    </div>
+    <div class="settings-item">
+      <span class="settings-label">Порог совпадения:</span>
+      <span class="settings-value" id="thresholdValue">78%</span>
+    </div>
+  </div>
+
+  <div id="debugPanel">
+    <div style="font-weight:bold; color:#FFC107; margin-bottom:4px;">🔬 DEBUG</div>
+    <div id="debugInfo"></div>
+  </div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <div id="loaderText">Инициализация...</div>
+    <div id="loaderSubtext">Загрузка шаблонов и запуск камеры</div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIG
+========================================================= */
+const CONFIG = {
+  // итоговый "нормализованный" размер зоны (в который мы приводим и шаблон, и текущий кадр ROI)
+  norm: { width: 200, height: 280 },
+
+  // какой кусок нормализованной карты сравниваем (верхний левый угол)
+  corner: { wRatio: 0.35, hRatio: 0.35 },
+
+  // путь к шаблонам
+  templatesDir: 'templates',
+
+  templates: [
+    { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей' },
+    { id:'8p',  file:'8p.jpg',  rank:'8',  suit:'♠', name:'8 Пик' },
+    { id:'9tr', file:'9tr.jpg', rank:'9',  suit:'♣', name:'9 Треф' },
+    { id:'10b', file:'10b.jpg', rank:'10', suit:'♦', name:'10 Бубен' },
+    { id:'dh',  file:'dh.jpg',  rank:'Q',  suit:'♥', name:'Дама Червей' },
+    { id:'kp',  file:'kp.jpg',  rank:'K',  suit:'♠', name:'Король Пик' },
+    { id:'tb',  file:'tb.jpg',  rank:'A',  suit:'♦', name:'Туз Бубен' },
+    { id:'vtr', file:'vtr.jpg', rank:'J',  suit:'♣', name:'Валет Треф' }
+  ],
+
+  // пороги
+  thresholds: {
+    // бинарное совпадение (0..1)
+    minScore: 0.78,
+
+    // минимальный разрыв между 1 и 2 местом
+    minMargin: 0.03,
+
+    // фильтр "есть ли вообще что-то в зоне": по контрасту (std dev grayscale)
+    minStd: 18
+  },
+
+  // препроцессинг
+  preprocess: {
+    blur3x3: true,
+    adaptiveWindow: 15, // нечётное
+    adaptiveC: 7        // вычитается из среднего (чем больше, тем "жирнее" черное)
+  },
+
+  // устойчивость к небольшим смещениям
+  match: {
+    maxShift: 2 // пикселей по x/y
+  },
+
+  video: {
+    width: { ideal: 1920 },
+    height:{ ideal: 1080 }
+  }
+};
+
+const CARDS = {
+  '♥': { name:'Червы', class:'red' },
+  '♦': { name:'Бубны', class:'red' },
+  '♠': { name:'Пики', class:'black' },
+  '♣': { name:'Трефы', class:'black' }
+};
+
+/* =========================================================
+   Utils: image processing
+========================================================= */
+class ImgProc {
+  static toGrayscale(imageData) {
+    const { data, width, height } = imageData;
+    const gray = new Uint8ClampedArray(width * height);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      // perceptual-ish
+      gray[p] = (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]) | 0;
+    }
+    return { gray, width, height };
+  }
+
+  static stdDev(gray) {
+    let sum = 0;
+    const n = gray.length;
+    for (let i=0;i<n;i++) sum += gray[i];
+    const mean = sum / n;
+    let v = 0;
+    for (let i=0;i<n;i++) {
+      const d = gray[i] - mean;
+      v += d*d;
+    }
+    return Math.sqrt(v / n);
+  }
+
+  // очень лёгкий blur 3x3 (box)
+  static blur3x3(gray, w, h) {
+    const out = new Uint8ClampedArray(gray.length);
+    const idx = (x,y) => y*w + x;
+    for (let y=0;y<h;y++) {
+      for (let x=0;x<w;x++) {
+        let sum = 0, c = 0;
+        for (let dy=-1;dy<=1;dy++){
+          const yy = y+dy; if (yy<0 || yy>=h) continue;
+          for (let dx=-1;dx<=1;dx++){
+            const xx = x+dx; if (xx<0 || xx>=w) continue;
+            sum += gray[idx(xx,yy)];
+            c++;
+          }
+        }
+        out[idx(x,y)] = (sum / c) | 0;
+      }
+    }
+    return out;
+  }
+
+  // adaptive threshold через integral image (mean in window)
+  static adaptiveThreshold(gray, w, h, winSize=15, C=7) {
+    const half = (winSize / 2) | 0;
+
+    // integral image (w+1)*(h+1)
+    const iw = w + 1, ih = h + 1;
+    const integral = new Uint32Array(iw * ih);
+
+    for (let y=1;y<=h;y++){
+      let rowSum = 0;
+      for (let x=1;x<=w;x++){
+        rowSum += gray[(y-1)*w + (x-1)];
+        integral[y*iw + x] = integral[(y-1)*iw + x] + rowSum;
+      }
+    }
+
+    const mask = new Uint8Array(w*h); // 1 = "чернила" (тёмное)
+    const sumRect = (x1,y1,x2,y2) => {
+      // inclusive coords in [0..w-1], [0..h-1]
+      // integral uses +1
+      const A = integral[y1*iw + x1];
+      const B = integral[y1*iw + (x2+1)];
+      const Cc = integral[(y2+1)*iw + x1];
+      const D = integral[(y2+1)*iw + (x2+1)];
+      return D - B - Cc + A;
+    };
+
+    for (let y=0;y<h;y++){
+      const y1 = Math.max(0, y-half);
+      const y2 = Math.min(h-1, y+half);
+      for (let x=0;x<w;x++){
+        const x1 = Math.max(0, x-half);
+        const x2 = Math.min(w-1, x+half);
+        const area = (x2-x1+1)*(y2-y1+1);
+        const mean = sumRect(x1,y1,x2,y2) / area;
+        const g = gray[y*w + x];
+        // тёмное относительно среднего => "чернила"
+        mask[y*w + x] = (g < (mean - C)) ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+
+  static extractCorner(imageData) {
+    const w = imageData.width, h = imageData.height;
+    const cw = Math.max(1, Math.floor(w * CONFIG.corner.wRatio));
+    const ch = Math.max(1, Math.floor(h * CONFIG.corner.hRatio));
+    const canvas = document.createElement('canvas');
+    canvas.width = cw; canvas.height = ch;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    // кладём исходный imageData на temp canvas и режем
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const tctx = tmp.getContext('2d', { willReadFrequently: true });
+    tctx.putImageData(imageData, 0, 0);
+
+    ctx.drawImage(tmp, 0, 0, cw, ch, 0, 0, cw, ch);
+    return ctx.getImageData(0, 0, cw, ch);
+  }
+
+  static matchBinary(maskA, maskB, w, h, maxShift=2) {
+    // maskA and maskB are Uint8Array length w*h
+    // score = 1 - xor/total, take best over shifts
+    let best = -1;
+    let bestShift = { dx: 0, dy: 0 };
+
+    for (let dy=-maxShift; dy<=maxShift; dy++){
+      for (let dx=-maxShift; dx<=maxShift; dx++){
+        let xor = 0;
+        let total = 0;
+        for (let y=0;y<h;y++){
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          let rowA = y*w;
+          let rowB = yy*w;
+          for (let x=0;x<w;x++){
+            const xx = x + dx;
+            if (xx < 0 || xx >= w) continue;
+            const a = maskA[rowA + x];
+            const b = maskB[rowB + xx];
+            xor += (a ^ b);
+            total++;
+          }
+        }
+        if (total === 0) continue;
+        const score = 1 - (xor / total);
+        if (score > best) {
+          best = score;
+          bestShift = { dx, dy };
+        }
+      }
+    }
+    return { score: best, shift: bestShift };
+  }
+}
+
+/* =========================================================
+   Template loader (from /templates)
+========================================================= */
+class TemplateLoader {
+  static async loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      // если будете грузить не с этого домена — понадобится CORS
+      // img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Не удалось загрузить: ' + url));
+      img.src = url;
+    });
+  }
+
+  static drawToNormCanvas(img, normW, normH) {
+    // contain (без искажения), белый фон
+    const c = document.createElement('canvas');
+    c.width = normW; c.height = normH;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, normW, normH);
+
+    const scale = Math.min(normW / img.naturalWidth, normH / img.naturalHeight);
+    const dw = img.naturalWidth * scale;
+    const dh = img.naturalHeight * scale;
+    const dx = (normW - dw) / 2;
+    const dy = (normH - dh) / 2;
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, dx, dy, dw, dh);
+
+    return c;
+  }
+
+  static preprocessCorner(imageData) {
+    const corner = ImgProc.extractCorner(imageData);
+    let { gray, width:w, height:h } = ImgProc.toGrayscale(corner);
+
+    if (CONFIG.preprocess.blur3x3) {
+      gray = ImgProc.blur3x3(gray, w, h);
+    }
+    const mask = ImgProc.adaptiveThreshold(gray, w, h, CONFIG.preprocess.adaptiveWindow, CONFIG.preprocess.adaptiveC);
+    const std = ImgProc.stdDev(gray);
+
+    return { corner, gray, mask, w, h, std };
+  }
+
+  static async loadAllTemplates() {
+    const out = {};
+    const normW = CONFIG.norm.width;
+    const normH = CONFIG.norm.height;
+
+    for (const card of CONFIG.templates) {
+      const url = `${CONFIG.templatesDir}/${card.file}`;
+      const img = await this.loadImage(url);
+      const normCanvas = this.drawToNormCanvas(img, normW, normH);
+      const ctx = normCanvas.getContext('2d', { willReadFrequently: true });
+      const imageData = ctx.getImageData(0, 0, normW, normH);
+
+      const prep = this.preprocessCorner(imageData);
+
+      out[card.id] = {
+        ...card,
+        url,
+        normCanvas,
+        normImageData: imageData,
+        cornerMask: prep.mask,
+        cornerW: prep.w,
+        cornerH: prep.h
+      };
+    }
+    return out;
+  }
+}
+
+/* =========================================================
+   Recognizer
+========================================================= */
+class CardRecognizer {
+  constructor() {
+    this.templates = {};
+    this.ready = false;
+    this.cornerW = 0;
+    this.cornerH = 0;
+  }
+
+  async loadTemplates() {
+    this.templates = await TemplateLoader.loadAllTemplates();
+    const keys = Object.keys(this.templates);
+    this.ready = keys.length > 0;
+
+    if (this.ready) {
+      // все должны быть одного размера угла
+      const t0 = this.templates[keys[0]];
+      this.cornerW = t0.cornerW;
+      this.cornerH = t0.cornerH;
+    }
+
+    return { success: this.ready, loaded: keys.length, total: CONFIG.templates.length };
+  }
+
+  preprocessInput(normImageData) {
+    // normImageData: 200x280
+    const corner = ImgProc.extractCorner(normImageData);
+
+    let { gray, width:w, height:h } = ImgProc.toGrayscale(corner);
+    if (CONFIG.preprocess.blur3x3) gray = ImgProc.blur3x3(gray, w, h);
+
+    const std = ImgProc.stdDev(gray);
+    const mask = ImgProc.adaptiveThreshold(gray, w, h, CONFIG.preprocess.adaptiveWindow, CONFIG.preprocess.adaptiveC);
+
+    return { corner, gray, mask, w, h, std };
+  }
+
+  async recognize(normImageData) {
+    const debug = {};
+    if (!this.ready) return { error:'Шаблоны не готовы', debug };
+
+    // preprocess
+    const prep = this.preprocessInput(normImageData);
+    debug.std = prep.std.toFixed(1);
+
+    if (prep.std < CONFIG.thresholds.minStd) {
+      return { error:`Мало деталей в зоне (контраст ${debug.std})`, debug };
+    }
+
+    // sanity check размера
+    if (prep.w !== this.cornerW || prep.h !== this.cornerH) {
+      // в этой версии размеры должны совпадать, но оставим страховку
+      debug.cornerSize = `${prep.w}x${prep.h} (tmpl ${this.cornerW}x${this.cornerH})`;
+    } else {
+      debug.cornerSize = `${prep.w}x${prep.h}`;
+    }
+
+    // compare
+    const scores = [];
+    for (const [id, t] of Object.entries(this.templates)) {
+      const { score, shift } = ImgProc.matchBinary(prep.mask, t.cornerMask, t.cornerW, t.cornerH, CONFIG.match.maxShift);
+      scores.push({ id, score, shift, ...t });
+    }
+
+    scores.sort((a,b)=> b.score - a.score);
+
+    const best = scores[0];
+    const second = scores[1];
+
+    debug.best = `${best.name}`;
+    debug.bestScore = `${(best.score*100).toFixed(1)}%`;
+    debug.bestShift = `dx=${best.shift.dx}, dy=${best.shift.dy}`;
+
+    if (second) {
+      debug.second = `${second.name}`;
+      debug.secondScore = `${(second.score*100).toFixed(1)}%`;
+      debug.margin = `${((best.score-second.score)*100).toFixed(1)}%`;
+    }
+
+    if (best.score < CONFIG.thresholds.minScore) {
+      return { error:`Слабое совпадение (${debug.bestScore})`, debug };
+    }
+
+    const margin = best.score - (second?.score || 0);
+    if (margin < CONFIG.thresholds.minMargin) {
+      return { error:`Неуверенно (разрыв ${debug.margin})`, debug };
+    }
+
+    return {
+      rank: best.rank,
+      suit: best.suit,
+      name: best.name,
+      confidence: Math.round(best.score * 100),
+      debug
+    };
+  }
+}
+
+/* =========================================================
+   App: correct ROI mapping with object-fit: cover
+========================================================= */
+class App {
+  constructor() {
+    this.video = document.getElementById('video');
+    this.canvas = document.getElementById('canvas'); // рабочий canvas для нормализованного ROI
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently:true });
+
+    this.loader = document.getElementById('loader');
+    this.recognizer = new CardRecognizer();
+
+    this.stream = null;
+    this.facingMode = 'environment';
+
+    this.debugMode = false;
+    this.settingsOpen = false;
+
+    this.autoMode = false;
+    this.autoTimer = null;
+
+    this.isRecognizing = false;
+
+    this.init();
+  }
+
+  async init() {
+    try {
+      this.setStatus('Загрузка шаблонов...');
+      const loadResult = await this.recognizer.loadTemplates();
+      if (!loadResult.success) throw new Error('Не удалось загрузить шаблоны');
+
+      document.getElementById('templatesValue').textContent = `${loadResult.loaded}/${loadResult.total}`;
+      document.getElementById('normSizeValue').textContent = `${CONFIG.norm.width}×${CONFIG.norm.height}`;
+      document.getElementById('thresholdValue').textContent = `${Math.round(CONFIG.thresholds.minScore*100)}%`;
+
+      this.log(`✓ Шаблонов: ${loadResult.loaded}`, 'ok');
+
+      this.setStatus('Запуск камеры...');
+      await this.startCamera();
+      this.setupCanvas();
+      this.setupControls();
+
+      this.loader.style.display = 'none';
+      this.setStatus('Наведите камеру на карту');
+
+    } catch (err) {
+      this.loader.innerHTML = `
+        <div style="color:#f44336; font-size:16px; font-weight:bold;">Ошибка!</div>
+        <div style="font-size:12px; margin-top:10px;">${err.message}</div>
+        <div style="font-size:10px; margin-top:10px; color:#888;">
+          Откройте через http(s) и разрешите камеру. Проверьте, что папка templates доступна.
+        </div>
+      `;
+      console.error(err);
+    }
+  }
+
+  async startCamera() {
+    const constraints = {
+      video: {
+        width: CONFIG.video.width,
+        height: CONFIG.video.height,
+        facingMode: this.facingMode
+      },
+      audio: false
+    };
+
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.video.srcObject = this.stream;
+
+    await new Promise((resolve) => {
+      this.video.onloadedmetadata = () => resolve();
+    });
+
+    await this.video.play();
+  }
+
+  setupCanvas() {
+    this.canvas.width = CONFIG.norm.width;
+    this.canvas.height = CONFIG.norm.height;
+  }
+
+  setupControls() {
+    document.getElementById('recognizeBtn').onclick = () => this.recognizeOnce();
+
+    document.getElementById('autoBtn').onclick = () => {
+      this.autoMode = !this.autoMode;
+      const btn = document.getElementById('autoBtn');
+      btn.classList.toggle('on', this.autoMode);
+      btn.textContent = this.autoMode ? '⏸ Стоп' : '🔄 Авто';
+
+      if (this.autoMode) {
+        this.log('Авто режим ВКЛ', 'ok');
+        this.autoLoop();
+      } else {
+        this.log('Авто режим ВЫКЛ');
+        if (this.autoTimer) clearTimeout(this.autoTimer);
+        this.autoTimer = null;
+      }
+    };
+
+    document.getElementById('debugBtn').onclick = () => {
+      this.debugMode = !this.debugMode;
+      document.getElementById('debugPanel').classList.toggle('show', this.debugMode);
+      document.getElementById('debugBtn').classList.toggle('on', this.debugMode);
+    };
+
+    document.getElementById('settingsBtn').onclick = () => {
+      this.settingsOpen = !this.settingsOpen;
+      document.getElementById('settingsPanel').classList.toggle('show', this.settingsOpen);
+      document.getElementById('settingsBtn').classList.toggle('on', this.settingsOpen);
+    };
+
+    document.getElementById('switchBtn').onclick = async () => {
+      this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
+      if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+      await this.startCamera();
+      this.log('Камера переключена', 'ok');
+    };
+  }
+
+  autoLoop() {
+    const tick = async () => {
+      if (!this.autoMode) return;
+      await this.recognizeOnce();
+      this.autoTimer = setTimeout(tick, 1200); // чаще, но без наложения (есть lock)
+    };
+    tick();
+  }
+
+  // ключевая часть: маппинг scanZone -> координаты исходного видео (учёт object-fit:cover)
+  captureNormROIFromScanZone() {
+    const zone = document.getElementById('scanZone');
+    const zr = zone.getBoundingClientRect();
+    const vr = this.video.getBoundingClientRect();
+
+    // небольшая "внутренняя" отсечка, чтобы не захватывать зелёную рамку/антиалиасинг
+    const inset = 6;
+    const zoneLeft = zr.left + inset;
+    const zoneTop = zr.top + inset;
+    const zoneW = Math.max(10, zr.width - inset*2);
+    const zoneH = Math.max(10, zr.height - inset*2);
+
+    // проверка пересечения зоны и видео
+    const relX = zoneLeft - vr.left;
+    const relY = zoneTop - vr.top;
+    if (relX < 0 || relY < 0 || relX + zoneW > vr.width || relY + zoneH > vr.height) {
+      // зона частично вне видео (маловероятно, но пусть будет понятная ошибка)
+      throw new Error('Зона сканирования вне области видео');
+    }
+
+    const srcW = this.video.videoWidth;
+    const srcH = this.video.videoHeight;
+    const elW = vr.width;
+    const elH = vr.height;
+
+    // object-fit: cover => scale = max(elW/srcW, elH/srcH)
+    const scale = Math.max(elW / srcW, elH / srcH);
+
+    // какая часть исходного видео реально видна
+    const shownW = elW / scale;
+    const shownH = elH / scale;
+    const offsetX = (srcW - shownW) / 2;
+    const offsetY = (srcH - shownH) / 2;
+
+    // перевод зоны (в CSS px) в координаты source video px
+    const sx = offsetX + (relX / scale);
+    const sy = offsetY + (relY / scale);
+    const sw = zoneW / scale;
+    const sh = zoneH / scale;
+
+    // рисуем ROI сразу в нормализованный canvas (200x280)
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
+    this.ctx.drawImage(this.video, sx, sy, sw, sh, 0, 0, CONFIG.norm.width, CONFIG.norm.height);
+
+    const normData = this.ctx.getImageData(0, 0, CONFIG.norm.width, CONFIG.norm.height);
+
+    return {
+      normData,
+      debugROI: {
+        // полезно для отладки
+        sx: sx.toFixed(1), sy: sy.toFixed(1), sw: sw.toFixed(1), sh: sh.toFixed(1),
+        scale: scale.toFixed(3),
+        src: `${srcW}x${srcH}`,
+        el: `${Math.round(elW)}x${Math.round(elH)}`,
+        zone: `${Math.round(zoneW)}x${Math.round(zoneH)}`
+      }
+    };
+  }
+
+  async recognizeOnce() {
+    if (this.isRecognizing) return;
+    this.isRecognizing = true;
+
+    const btn = document.getElementById('recognizeBtn');
+    const zone = document.getElementById('scanZone');
+
+    try {
+      btn.textContent = '⏳';
+      zone.classList.add('active');
+      this.setStatus('Анализ...');
+
+      // небольшой yield, чтобы UI успел обновиться
+      await new Promise(r => setTimeout(r, 30));
+
+      const { normData, debugROI } = this.captureNormROIFromScanZone();
+      const result = await this.recognizer.recognize(normData);
+
+      if (this.debugMode) {
+        const dbg = { ...debugROI, ...(result.debug || {}) };
+        this.renderDebug(dbg);
+      }
+
+      zone.classList.remove('active');
+      btn.textContent = '🎯 Распознать';
+
+      if (result.error) {
+        zone.classList.add('error');
+        setTimeout(() => zone.classList.remove('error'), 800);
+        this.setStatus(result.error, 'error');
+        this.log('✗ ' + result.error, 'err');
+      } else {
+        this.showResult(result);
+        this.setStatus('✅ ' + result.name, 'ok');
+        this.log(`✓ ${result.name} (${result.confidence}%)`, 'ok');
+        if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+      }
+    } catch (e) {
+      zone.classList.remove('active');
+      btn.textContent = '🎯 Распознать';
+      this.setStatus(e.message, 'error');
+      this.log('✗ ' + e.message, 'err');
+      console.error(e);
+    } finally {
+      this.isRecognizing = false;
+    }
+  }
+
+  renderDebug(obj) {
+    let html = '';
+    const order = [
+      'src','el','zone','scale','sx','sy','sw','sh',
+      'cornerSize','std',
+      'best','bestScore','bestShift','second','secondScore','margin'
+    ];
+    const labels = {
+      src:'🎥 video:', el:'🖼️ element:', zone:'🟩 zone:',
+      scale:'📐 scale:', sx:'sx:', sy:'sy:', sw:'sw:', sh:'sh:',
+      cornerSize:'📌 corner:', std:'📊 contrast:',
+      best:'🃏 best:', bestScore:'⭐ score:', bestShift:'↔ shift:',
+      second:'2️⃣ second:', secondScore:'2️⃣ score:', margin:'📏 margin:'
+    };
+
+    for (const k of order) {
+      if (obj[k] === undefined) continue;
+      html += `<div class="dbg-line">${labels[k] || k} ${obj[k]}</div>`;
+    }
+    // выводим остальные поля
+    for (const [k,v] of Object.entries(obj)) {
+      if (order.includes(k)) continue;
+      html += `<div class="dbg-line">${k}: ${v}</div>`;
+    }
+    document.getElementById('debugInfo').innerHTML = html;
+  }
+
+  showResult(card) {
+    const suitInfo = CARDS[card.suit] || { class:'' };
+    document.getElementById('cardSymbol').textContent = `${card.rank}${card.suit}`;
+    document.getElementById('cardSymbol').className = suitInfo.class;
+    document.getElementById('cardTitle').textContent = card.name;
+    document.getElementById('cardConfidence').textContent = `Уверенность: ${card.confidence}%`;
+
+    const box = document.getElementById('resultCard');
+    box.classList.add('show');
+    setTimeout(() => box.classList.remove('show'), 2500);
+  }
+
+  setStatus(text, type='') {
+    const el = document.getElementById('statusBar');
+    el.textContent = text;
+    el.className = type;
+  }
+
+  log(text, type='') {
+    const box = document.getElementById('historyLog');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (type ? ' log-' + type : '');
+    line.textContent = new Date().toLocaleTimeString().slice(-8) + ' ' + text;
+    box.insertBefore(line, box.firstChild);
+    while (box.children.length > 10) box.removeChild(box.lastChild);
+  }
+}
+
+window.addEventListener('load', () => new App());
+</script>
+</body>
+</html>
