@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+  <title>Card Recognizer v5 (быстрый + SAD + без OpenCV по умолчанию)</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; }
+    html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; background:#000; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+
+    #container { position:relative; width:100vw; height:100vh; height:100dvh; }
+    #video { width:100%; height:100%; object-fit:cover; }
+    #canvas { display:none; }
+
+    #topArea{
+      position:absolute; top:0; left:0; right:0;
+      padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px;
+      z-index:10;
+    }
+    #scanZone{
+      width:200px; height:280px;
+      border:3px solid #4CAF50; border-radius:12px;
+      box-shadow:0 0 0 9999px rgba(0,0,0,0.7);
+      flex-shrink:0; position:relative;
+    }
+    #scanZone::before{
+      content:'📍 Наведите карту сюда';
+      position:absolute; bottom:-25px; left:50%; transform:translateX(-50%);
+      color:#4CAF50; font-size:11px; white-space:nowrap;
+    }
+    #scanZone.active { border-color:#FFC107; animation: glow 0.6s infinite; }
+    #scanZone.active::before { color:#FFC107; content:'🔍 Сканирование...'; }
+    #scanZone.error { border-color:#f44336; animation: shake 0.4s; }
+    #scanZone.error::before { color:#f44336; content:'❌ Не распознано'; }
+
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; }
+      50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; }
+    }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+
+    #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
+    .ctrl-btn{
+      width:40px; height:40px; border-radius:50%;
+      background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3);
+      color:white; font-size:18px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; transition:0.2s;
+    }
+    .ctrl-btn:active { transform:scale(0.9); }
+    .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
+
+    #resultCard{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.9);
+      background:rgba(255,255,255,0.98); border-radius:16px; padding:20px 30px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
+      opacity:0; transition:0.2s; z-index:100;
+    }
+    #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    #cardSymbol { font-size:72px; font-weight:bold; line-height:1; }
+    #cardTitle { font-size:16px; color:#555; margin-top:8px; font-weight:500; }
+    #cardConfidence { font-size:11px; color:#888; margin-top:4px; }
+    .red{ color:#e53935; } .black{ color:#212121; }
+
+    #statusBar{
+      position:absolute; top:320px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.85); color:white;
+      padding:6px 14px; border-radius:12px; font-size:11px; max-width:92%; text-align:center;
+      z-index:10;
+    }
+    #statusBar.error { background: rgba(244,67,54,0.95); }
+    #statusBar.ok { background: rgba(76,175,80,0.95); }
+
+    #hint{
+      position:absolute; bottom:150px; left:50%; transform:translateX(-50%);
+      background:rgba(255,255,255,0.95); color:#333;
+      padding:8px 16px; border-radius:20px; font-size:11px;
+      z-index:5; text-align:center; max-width:85%;
+    }
+
+    #bottomArea{
+      position:absolute; bottom:0; left:0; right:0;
+      padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
+      display:flex; flex-direction:column; gap:8px; align-items:center;
+      background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+      z-index:10;
+    }
+    #historyLog{
+      background:rgba(0,0,0,0.7); border-radius:8px; padding:6px 10px;
+      width:100%; max-width:360px; max-height:60px; overflow-y:auto;
+      font-family:monospace; font-size:9px; color:#0f0;
+    }
+    .log-line{ margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .log-err{ color:#f44336; } .log-ok{ color:#4CAF50; } .log-warn{ color:#FFC107; }
+
+    #actionButtons{ display:flex; gap:8px; width:100%; max-width:360px; }
+    .action-btn{
+      flex:1; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%);
+      color:white; border:none; padding:14px 0; border-radius:20px;
+      font-size:14px; font-weight:600; box-shadow:0 4px 15px rgba(102,126,234,0.5);
+      cursor:pointer; transition:0.2s;
+    }
+    .action-btn:active { transform:scale(0.96); }
+    .action-btn.auto{
+      background:linear-gradient(135deg,#FFC107 0%, #FF9800 100%);
+      box-shadow:0 4px 15px rgba(255,193,7,0.5);
+    }
+    .action-btn.auto.on { background:linear-gradient(135deg,#4CAF50 0%, #43A047 100%); }
+
+    #settingsPanel{
+      position:absolute; top:50%; right:10px; transform:translateY(-50%);
+      width:260px;
+      background:rgba(0,0,0,0.94); border-radius:12px; padding:10px;
+      z-index:10; display:none;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    #settingsPanel.show{ display:block; }
+    .settings-title{ color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:8px; text-align:center; }
+    .settings-item{ margin:8px 0; }
+    .settings-label{ color:#aaa; font-size:9px; display:flex; justify-content:space-between; gap:10px; margin-bottom:3px; }
+    .settings-value{ color:#0f0; font-size:9px; font-family:monospace; }
+    .settings-row{ display:flex; gap:8px; align-items:center; }
+    .settings-row input[type="range"]{ width:100%; }
+    .settings-row input[type="number"]{
+      width:70px; background:#111; border:1px solid rgba(255,255,255,0.15); color:#fff;
+      border-radius:6px; padding:4px; font-size:11px;
+    }
+    .settings-row input[type="checkbox"]{ transform: scale(1.1); }
+    .settings-btns{ display:flex; gap:8px; margin-top:10px; }
+    .mini-btn{
+      flex:1;
+      background:#222; color:#fff; border:1px solid rgba(255,255,255,0.15);
+      border-radius:8px; padding:8px 0; font-size:11px; cursor:pointer;
+    }
+    .mini-btn:active{ transform:scale(0.98); }
+
+    #debugPanel{
+      position:absolute; top:50%; left:10px; transform:translateY(-50%);
+      width:270px;
+      background:rgba(0,0,0,0.94); border-radius:12px; padding:10px;
+      font-family:monospace; font-size:9px; color:#0f0;
+      display:none; z-index:10;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    #debugPanel.show{ display:block; }
+    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.08); }
+    .dbg-title{ color:#FFC107; font-weight:bold; margin-bottom:6px; }
+    .dbg-subtitle{ color:#9cf; margin:6px 0 4px; font-weight:bold; }
+    .cand-line{ display:flex; justify-content:space-between; gap:10px; }
+    .cand-left{ color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cand-right{ color:#0f0; white-space:nowrap; }
+    .dbg-canvases{ display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+    .dbg-canvases canvas{
+      width:80px; height:112px;
+      background:#111; border:1px solid rgba(255,255,255,0.12); border-radius:6px;
+    }
+
+    #loader{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      text-align:center; color:white; background:rgba(0,0,0,0.95);
+      padding:30px; border-radius:16px; z-index:999; min-width:240px;
+    }
+    .spin{
+      border:4px solid rgba(255,255,255,0.3); border-top:4px solid #667eea;
+      border-radius:50%; width:40px; height:40px; animation: rotate 1s linear infinite;
+      margin:0 auto 15px;
+    }
+    @keyframes rotate { to { transform:rotate(360deg); } }
+    #loaderText{ font-size:13px; margin-bottom:8px; }
+    #loaderSubtext{ font-size:10px; color:#888; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="topArea">
+    <div id="scanZone"></div>
+    <div id="ctrlButtons">
+      <div class="ctrl-btn" id="debugBtn" title="Отладка">🐛</div>
+      <div class="ctrl-btn" id="settingsBtn" title="Настройки">⚙️</div>
+      <div class="ctrl-btn" id="switchBtn" title="Камера">📷</div>
+    </div>
+  </div>
+
+  <div id="resultCard">
+    <div id="cardSymbol">?</div>
+    <div id="cardTitle">Ожидание...</div>
+    <div id="cardConfidence"></div>
+  </div>
+
+  <div id="statusBar">Наведите камеру на карту</div>
+  <div id="hint">Держите карту в рамке, избегайте бликов. Авторежим сам распознаёт.</div>
+
+  <div id="bottomArea">
+    <div id="historyLog"></div>
+    <div id="actionButtons">
+      <button class="action-btn" id="recognizeBtn">🎯 Распознать</button>
+      <button class="action-btn auto" id="autoBtn">🔄 Авто</button>
+    </div>
+  </div>
+
+  <div id="settingsPanel">
+    <div class="settings-title">⚙️ НАСТРОЙКИ (быстрые)</div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Порог (minScore)</span><span id="ui_minScoreVal" class="settings-value"></span></div>
+      <input id="ui_minScore" type="range" min="50" max="92" step="1">
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Разрыв (minMargin)</span><span id="ui_minMarginVal" class="settings-value"></span></div>
+      <input id="ui_minMargin" type="range" min="0" max="14" step="1">
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Порог угла (adaptiveC)</span><span id="ui_adaptCVal" class="settings-value"></span></div>
+      <input id="ui_adaptC" type="range" min="0" max="20" step="1">
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Сдвиг (maxShift) 0..1</span><span id="ui_maxShiftVal" class="settings-value"></span></div>
+      <input id="ui_maxShift" type="range" min="0" max="1" step="1">
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Стабильность (авто)</span><span id="ui_stableVal" class="settings-value"></span></div>
+      <input id="ui_stable" type="range" min="1" max="3" step="1">
+    </div>
+    <div class="settings-btns">
+      <button class="mini-btn" id="ui_resetBtn">Сброс</button>
+      <button class="mini-btn" id="ui_closeBtn">Закрыть</button>
+    </div>
+    <div style="margin-top:8px; color:#888; font-size:9px;">
+      Шаблоны: <span id="ui_templatesVal"></span><br/>
+      Размеры: <span id="ui_normVal"></span> | SAD+быстрый порог
+    </div>
+  </div>
+
+  <div id="debugPanel">
+    <div class="dbg-title">🔬 DEBUG</div>
+    <div id="debugInfo"></div>
+    <div class="dbg-subtitle">Top кандидаты</div>
+    <div id="debugCandidates"></div>
+    <div class="dbg-subtitle">Кадры</div>
+    <div class="dbg-canvases">
+      <canvas id="dbgROI" width="160" height="224" title="ROI"></canvas>
+      <canvas id="dbgBin" width="160" height="224" title="Binary corner"></canvas>
+    </div>
+  </div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <div id="loaderText">Инициализация...</div>
+    <div id="loaderSubtext">Загрузка шаблонов и камеры</div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   FAST CARD RECOGNIZER v5
+   - Нет OpenCV (опционально выключен)
+   - SAD вместо NCC
+   - Уменьшенные размеры, maxShift=1, без размытия
+   - Адаптивный порог (быстрый простой метод)
+========================================================= */
+const CONFIG = {
+  norm: { width: 200, height: 280 },      // финальный нормализованный размер
+  small: { width: 64, height: 90 },       // уменьшено для SAD (быстрее)
+  corner: { wRatio: 0.35, hRatio: 0.35 }, // угол карты 70x98
+  templatesDir: 'templates',
+  // те же шаблоны 8 штук
+  templates: [
+    { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей' },
+    { id:'8p',  file:'8p.jpg',  rank:'8',  suit:'♠', name:'8 Пик' },
+    { id:'9tr', file:'9tr.jpg', rank:'9',  suit:'♣', name:'9 Треф' },
+    { id:'10b', file:'10b.jpg', rank:'10', suit:'♦', name:'10 Бубен' },
+    { id:'dh',  file:'dh.jpg',  rank:'Q',  suit:'♥', name:'Дама Червей' },
+    { id:'kp',  file:'kp.jpg',  rank:'K',  suit:'♠', name:'Король Пик' },
+    { id:'tb',  file:'tb.jpg',  rank:'A',  suit:'♦', name:'Туз Бубен' },
+    { id:'vtr', file:'vtr.jpg', rank:'J',  suit:'♣', name:'Валет Треф' }
+  ]
+};
+
+const CARDS = {
+  '♥': { name:'Червы', class:'red',  color:'red' },
+  '♦': { name:'Бубны', class:'red',  color:'red' },
+  '♠': { name:'Пики',  class:'black',color:'black' },
+  '♣': { name:'Трефы', class:'black',color:'black' }
+};
+
+const DEFAULT_SETTINGS = {
+  minScore: 0.72,        // порог уверенности
+  minMargin: 0.04,       // минимальный разрыв между первым и вторым
+  adaptiveC: 5,          // для бинаризации угла (C в mean - C)
+  maxShift: 1,           // 0 или 1 (0=без сдвига, быстрее)
+  minStd: 16,            // минимальная контрастность ROI
+  wCorner: 0.68,         // вес бинарного сравнения угла
+  wFull: 0.28,           // вес SAD для всего изображения
+  wSuit: 0.04,           // вес подсказки масти
+  autoStable: 2          // сколько одинаковых результатов подряд для авто
+};
+
+const SETTINGS_KEY = 'cardrec_v5_settings';
+let SETTINGS = loadSettings();
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return structuredClone(DEFAULT_SETTINGS);
+    const s = JSON.parse(raw);
+    return { ...structuredClone(DEFAULT_SETTINGS), ...s };
+  } catch { return structuredClone(DEFAULT_SETTINGS); }
+}
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); }
+
+/* =========================================================
+   Быстрые утилиты обработки изображений (чистый JS)
+========================================================= */
+class FastImgProc {
+  // RGB -> серый
+  static toGrayscale(imageData) {
+    const { data, width, height } = imageData;
+    const gray = new Uint8ClampedArray(width * height);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      gray[p] = (0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]) | 0;
+    }
+    return { gray, width, height };
+  }
+
+  // Стандартное отклонение (быстро)
+  static stdDev(gray) {
+    let sum = 0, sum2 = 0, n = gray.length;
+    for (let i = 0; i < n; i++) { sum += gray[i]; sum2 += gray[i] * gray[i]; }
+    const mean = sum / n;
+    return Math.sqrt((sum2 / n) - mean * mean);
+  }
+
+  // Простая бинаризация по глобальному порогу (Otsu упрощённо) - очень быстро
+  // но лучше адаптивный по локальному среднему без интегральной картинки
+  static adaptiveBinaryFast(gray, w, h, C=5) {
+    // Используем скользящее окно 15x15, быстрее чем integral image для малых размеров
+    const winSize = 15;
+    const half = 7;
+    const mask = new Uint8Array(w * h);
+    // Предвычисляем префиксные суммы по строкам для быстрого доступа
+    const rowSum = new Uint32Array(w);
+    const colSum = new Uint32Array(w);
+    for (let y = 0; y < h; y++) {
+      let running = 0;
+      for (let x = 0; x < w; x++) {
+        running += gray[y * w + x];
+        rowSum[x] = (y === 0) ? running : rowSum[x] + gray[y * w + x];
+      }
+      if (y < half) continue;
+      for (let x = 0; x < w; x++) {
+        const x1 = Math.max(0, x - half);
+        const x2 = Math.min(w - 1, x + half);
+        const y1 = Math.max(0, y - half);
+        const y2 = Math.min(h - 1, y + half);
+        const area = (x2 - x1 + 1) * (y2 - y1 + 1);
+        let blockSum = 0;
+        for (let yy = y1; yy <= y2; yy++) {
+          const left = (x1 === 0) ? 0 : rowSum[x1-1];
+          const right = rowSum[x2];
+          blockSum += (right - left);
+        }
+        const mean = blockSum / area;
+        mask[y * w + x] = (gray[y * w + x] < mean - C) ? 1 : 0;
+      }
+    }
+    // заполняем верхние полосы (y<half) упрощённо
+    for (let y = 0; y < half && y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        mask[y * w + x] = (gray[y * w + x] < 128) ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+
+  // Альтернатива: очень быстрая пороговая обработка для угла (используем фиксированный порог с нормализацией)
+  static simpleBinary(gray, w, h) {
+    // находим 20-й и 80-й перцентили для адаптивного порога
+    const total = w * h;
+    const sorted = new Uint8Array(gray);
+    sorted.sort();
+    const low = sorted[Math.floor(total * 0.2)];
+    const high = sorted[Math.floor(total * 0.8)];
+    const thresh = low + (high - low) * 0.55;
+    const mask = new Uint8Array(total);
+    for (let i = 0; i < total; i++) mask[i] = (gray[i] < thresh) ? 1 : 0;
+    return mask;
+  }
+
+  // Вырезание угла (верхний левый угол карты)
+  static extractCorner(imageData) {
+    const w = imageData.width, h = imageData.height;
+    const cw = Math.max(1, Math.floor(w * CONFIG.corner.wRatio));
+    const ch = Math.max(1, Math.floor(h * CONFIG.corner.hRatio));
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const tctx = tmp.getContext('2d', {willReadFrequently: true});
+    tctx.putImageData(imageData, 0, 0);
+    const c = document.createElement('canvas');
+    c.width = cw; c.height = ch;
+    const ctx = c.getContext('2d', {willReadFrequently: true});
+    ctx.imageSmoothingEnabled = false; // быстрее и резче для угла
+    ctx.drawImage(tmp, 0, 0, cw, ch, 0, 0, cw, ch);
+    return ctx.getImageData(0, 0, cw, ch);
+  }
+
+  // SAD (Sum of Absolute Differences) для full изображения (даунсемпл)
+  static sadFull(a, b) {
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff += Math.abs(a[i] - b[i]);
+    return 1 - diff / (255 * a.length);
+  }
+
+  // Сравнение бинарных масок со сдвигом (maxShift 0 или 1)
+  static matchBinaryShift(maskA, maskB, w, h, maxShift) {
+    let best = 0, bestShift = {dx:0, dy:0};
+    const shifts = maxShift === 1 ? [-1,0,1] : [0];
+    for (const dy of shifts) {
+      for (const dx of shifts) {
+        let diff = 0, total = 0;
+        const yStart = Math.max(0, -dy);
+        const yEnd = Math.min(h, h - dy);
+        const xStart = Math.max(0, -dx);
+        const xEnd = Math.min(w, w - dx);
+        for (let y = yStart; y < yEnd; y++) {
+          const rowA = y * w;
+          const rowB = (y + dy) * w;
+          for (let x = xStart; x < xEnd; x++) {
+            diff += (maskA[rowA + x] ^ maskB[rowB + x + dx]);
+            total++;
+          }
+        }
+        const score = total ? 1 - (diff / total) : 0;
+        if (score > best) { best = score; bestShift = {dx, dy}; }
+      }
+    }
+    return { score: best, shift: bestShift };
+  }
+
+  // Даунсэмпл изображения через canvas (качественный и быстрый)
+  static downsampleToGray(imageData, newW, newH) {
+    const tmp = document.createElement('canvas');
+    tmp.width = imageData.width; tmp.height = imageData.height;
+    const tctx = tmp.getContext('2d', {willReadFrequently: true});
+    tctx.putImageData(imageData, 0, 0);
+    const c = document.createElement('canvas');
+    c.width = newW; c.height = newH;
+    const ctx = c.getContext('2d', {willReadFrequently: true});
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tmp, 0, 0, imageData.width, imageData.height, 0, 0, newW, newH);
+    const small = ctx.getImageData(0, 0, newW, newH);
+    return this.toGrayscale(small).gray;
+  }
+
+  // Поворот на 180 градусов
+  static rotate180(imageData) {
+    const w = imageData.width, h = imageData.height;
+    const src = imageData.data;
+    const out = new ImageData(w, h);
+    const dst = out.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const si = (y * w + x) * 4;
+        const di = ((h - 1 - y) * w + (w - 1 - x)) * 4;
+        dst[di] = src[si];
+        dst[di+1] = src[si+1];
+        dst[di+2] = src[si+2];
+        dst[di+3] = src[si+3];
+      }
+    }
+    return out;
+  }
+
+  // Оценка "красной" масти по углу (простая)
+  static redRatio(imageData) {
+    const corner = this.extractCorner(imageData);
+    const d = corner.data;
+    let red = 0, total = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i+1], b = d[i+2];
+      const br = (r+g+b)/3;
+      if (br < 40 || br > 240) continue;
+      if (r > g + 18 && r > b + 18) red++;
+      total++;
+    }
+    return total ? red / total : 0;
+  }
+
+  static drawBinaryToCanvas(mask, w, h, canvas) {
+    const ctx = canvas.getContext('2d', {willReadFrequently: true});
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      const v = mask[p] ? 0 : 255;
+      d[i] = d[i+1] = d[i+2] = v;
+      d[i+3] = 255;
+    }
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const tctx = tmp.getContext('2d');
+    tctx.putImageData(img, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
+  }
+}
+
+/* =========================================================
+   Загрузка шаблонов и предрасчёт
+========================================================= */
+class TemplateLoader {
+  static async loadImage(url) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`Ошибка загрузки ${url}`));
+      img.src = url;
+    });
+  }
+
+  static async loadAllTemplates() {
+    const out = {};
+    for (const card of CONFIG.templates) {
+      const url = `${CONFIG.templatesDir}/${card.file}`;
+      const img = await this.loadImage(url);
+      // нормализация до 200x280
+      const normCanvas = document.createElement('canvas');
+      normCanvas.width = CONFIG.norm.width;
+      normCanvas.height = CONFIG.norm.height;
+      const ctx = normCanvas.getContext('2d', {willReadFrequently: true});
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, CONFIG.norm.width, CONFIG.norm.height);
+      const scale = Math.min(CONFIG.norm.width / img.naturalWidth, CONFIG.norm.height / img.naturalHeight);
+      const dw = img.naturalWidth * scale;
+      const dh = img.naturalHeight * scale;
+      const dx = (CONFIG.norm.width - dw) / 2;
+      const dy = (CONFIG.norm.height - dh) / 2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+      const normData = ctx.getImageData(0, 0, CONFIG.norm.width, CONFIG.norm.height);
+      // предрасчёт угловой маски
+      const cornerImg = FastImgProc.extractCorner(normData);
+      const { gray: cgray, width: cw, height: ch } = FastImgProc.toGrayscale(cornerImg);
+      const cornerMask = FastImgProc.simpleBinary(cgray, cw, ch); // быстрая бинаризация
+      // full small для SAD
+      const fullSmallGray = FastImgProc.downsampleToGray(normData, CONFIG.small.width, CONFIG.small.height);
+      out[card.id] = { ...card, cornerMask, cornerW: cw, cornerH: ch, fullSmallGray };
+    }
+    return out;
+  }
+}
+
+/* =========================================================
+   Распознаватель (SAD + бинарный угол)
+========================================================= */
+class CardRecognizer {
+  constructor() {
+    this.templates = {};
+    this.ready = false;
+  }
+
+  async loadTemplates() {
+    this.templates = await TemplateLoader.loadAllTemplates();
+    this.ready = Object.keys(this.templates).length > 0;
+    return { success: this.ready, loaded: Object.keys(this.templates).length, total: CONFIG.templates.length };
+  }
+
+  preprocessInput(normImageData) {
+    const { gray: fullGray } = FastImgProc.toGrayscale(normImageData);
+    const std = FastImgProc.stdDev(fullGray);
+    // угол
+    const cornerImg = FastImgProc.extractCorner(normImageData);
+    const { gray: cgray, width: cw, height: ch } = FastImgProc.toGrayscale(cornerImg);
+    const cornerMask = FastImgProc.simpleBinary(cgray, cw, ch);
+    // full small для SAD
+    const fullSmallGray = FastImgProc.downsampleToGray(normImageData, CONFIG.small.width, CONFIG.small.height);
+    const redRatio = FastImgProc.redRatio(normImageData);
+    const suitHint = (redRatio > 0.09) ? 'red' : 'black';
+    return { std, cornerMask, cornerW: cw, cornerH: ch, fullSmallGray, suitHint };
+  }
+
+  scoreCandidates(normImageData) {
+    if (!this.ready) return { error: 'Шаблоны не загружены' };
+    const prep = this.preprocessInput(normImageData);
+    if (prep.std < SETTINGS.minStd) return { error: `Низкий контраст (${prep.std.toFixed(1)})`, candidates: [], prep };
+    const candidates = [];
+    for (const [id, t] of Object.entries(this.templates)) {
+      const binMatch = FastImgProc.matchBinaryShift(prep.cornerMask, t.cornerMask, t.cornerW, t.cornerH, SETTINGS.maxShift);
+      const fullScore = FastImgProc.sadFull(prep.fullSmallGray, t.fullSmallGray);
+      const suitColor = (CARDS[t.suit]?.color || 'black');
+      const suitScore = (suitColor === prep.suitHint) ? 1.0 : 0.55;
+      const total = SETTINGS.wCorner * binMatch.score + SETTINGS.wFull * fullScore + SETTINGS.wSuit * suitScore;
+      candidates.push({ id, name: t.name, rank: t.rank, suit: t.suit, total, corner: binMatch.score, full: fullScore, suitPrior: suitScore });
+    }
+    candidates.sort((a,b) => b.total - a.total);
+    return { candidates, prep, debug: { std: prep.std.toFixed(1), suitHint: prep.suitHint, best: candidates[0]?.name } };
+  }
+}
+
+/* =========================================================
+   Основное приложение (камера, ROI, UI)
+========================================================= */
+class App {
+  constructor() {
+    this.video = document.getElementById('video');
+    this.recognizer = new CardRecognizer();
+    this.normCanvas = document.createElement('canvas');
+    this.normCanvas.width = CONFIG.norm.width;
+    this.normCanvas.height = CONFIG.norm.height;
+    this.normCtx = this.normCanvas.getContext('2d', {willReadFrequently: true});
+    this.detectCanvas = document.createElement('canvas');
+    this.detectCanvas.width = 320;   // уменьшили для скорости
+    this.detectCanvas.height = 448;
+    this.detectCtx = this.detectCanvas.getContext('2d', {willReadFrequently: true});
+    this.loader = document.getElementById('loader');
+    this.stream = null;
+    this.facingMode = 'environment';
+    this.debugMode = false;
+    this.autoMode = false;
+    this.autoTimer = null;
+    this.isRecognizing = false;
+    this.lastStableId = null;
+    this.stableCount = 0;
+    this.init();
+  }
+
+  async init() {
+    try {
+      this.setStatus('Загрузка шаблонов...');
+      document.getElementById('loaderText').textContent = 'Загрузка...';
+      document.getElementById('loaderSubtext').textContent = 'Шаблоны из папки templates/';
+      const loadResult = await this.recognizer.loadTemplates();
+      if (!loadResult.success) throw new Error('Не найдены шаблоны в templates/');
+      this.log(`✓ Загружено ${loadResult.loaded} шаблонов`, 'ok');
+      this.setStatus('Запуск камеры...');
+      await this.startCamera();
+      this.setupControls();
+      this.setupSettingsUI(loadResult);
+      this.loader.style.display = 'none';
+      this.setStatus('Наведите карту в рамку');
+    } catch (e) {
+      this.loader.innerHTML = `<div style="color:#f44336;">Ошибка: ${e.message}</div>`;
+      console.error(e);
+    }
+  }
+
+  async startCamera() {
+    const constraints = { video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: this.facingMode }, audio: false };
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.video.srcObject = this.stream;
+    await new Promise(res => this.video.onloadedmetadata = res);
+    this.video.play();
+  }
+
+  setupControls() {
+    document.getElementById('recognizeBtn').onclick = () => this.recognizeOnce(false);
+    document.getElementById('autoBtn').onclick = () => {
+      this.autoMode = !this.autoMode;
+      const btn = document.getElementById('autoBtn');
+      btn.classList.toggle('on', this.autoMode);
+      btn.textContent = this.autoMode ? '⏸ Стоп' : '🔄 Авто';
+      this.lastStableId = null; this.stableCount = 0;
+      if (this.autoMode) this.autoLoop(); else if (this.autoTimer) clearTimeout(this.autoTimer);
+    };
+    document.getElementById('debugBtn').onclick = () => {
+      this.debugMode = !this.debugMode;
+      document.getElementById('debugPanel').classList.toggle('show', this.debugMode);
+      document.getElementById('debugBtn').classList.toggle('on', this.debugMode);
+    };
+    document.getElementById('settingsBtn').onclick = () => {
+      const panel = document.getElementById('settingsPanel');
+      panel.classList.toggle('show');
+      document.getElementById('settingsBtn').classList.toggle('on', panel.classList.contains('show'));
+      if (panel.classList.contains('show')) this.refreshSettingsUI();
+    };
+    document.getElementById('switchBtn').onclick = async () => {
+      this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
+      if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+      await this.startCamera();
+      this.log('Камера переключена', 'ok');
+    };
+  }
+
+  setupSettingsUI(loadResult) {
+    const $ = (id) => document.getElementById(id);
+    $('ui_templatesVal').innerText = `${loadResult.loaded}/${loadResult.total}`;
+    $('ui_normVal').innerText = `${CONFIG.norm.width}×${CONFIG.norm.height} / small ${CONFIG.small.width}×${CONFIG.small.height}`;
+    const bindRange = (id, key, min, max, isPercent=false) => {
+      const el = $(id);
+      const valSpan = $(id+'Val');
+      el.min = min; el.max = max;
+      el.value = isPercent ? Math.round(SETTINGS[key]*100) : SETTINGS[key];
+      valSpan.innerText = isPercent ? el.value+'%' : el.value;
+      el.oninput = () => {
+        let v = parseFloat(el.value);
+        if (isPercent) v = v/100;
+        SETTINGS[key] = v;
+        saveSettings();
+        valSpan.innerText = isPercent ? el.value+'%' : el.value;
+      };
+    };
+    bindRange('ui_minScore', 'minScore', 50, 92, true);
+    bindRange('ui_minMargin', 'minMargin', 0, 14, true);
+    bindRange('ui_adaptC', 'adaptiveC', 0, 20, false);
+    bindRange('ui_maxShift', 'maxShift', 0, 1, false);
+    bindRange('ui_stable', 'autoStable', 1, 3, false);
+    $('#ui_resetBtn').onclick = () => {
+      SETTINGS = structuredClone(DEFAULT_SETTINGS);
+      saveSettings();
+      this.refreshSettingsUI(true);
+      this.log('Настройки сброшены', 'ok');
+    };
+    $('#ui_closeBtn').onclick = () => {
+      document.getElementById('settingsPanel').classList.remove('show');
+      document.getElementById('settingsBtn').classList.remove('on');
+    };
+    this.refreshSettingsUI(true);
+  }
+
+  refreshSettingsUI(force=false) {
+    const $ = (id) => document.getElementById(id);
+    if ($('ui_minScore')) $('ui_minScoreVal').innerText = Math.round(SETTINGS.minScore*100)+'%';
+    if ($('ui_minMargin')) $('ui_minMarginVal').innerText = Math.round(SETTINGS.minMargin*100)+'%';
+    if ($('ui_adaptC')) $('ui_adaptCVal').innerText = SETTINGS.adaptiveC;
+    if ($('ui_maxShift')) $('ui_maxShiftVal').innerText = SETTINGS.maxShift;
+    if ($('ui_stable')) $('ui_stableVal').innerText = SETTINGS.autoStable;
+    if (force) {
+      if ($('ui_minScore')) $('ui_minScore').value = Math.round(SETTINGS.minScore*100);
+      if ($('ui_minMargin')) $('ui_minMargin').value = Math.round(SETTINGS.minMargin*100);
+      if ($('ui_adaptC')) $('ui_adaptC').value = SETTINGS.adaptiveC;
+      if ($('ui_maxShift')) $('ui_maxShift').value = SETTINGS.maxShift;
+      if ($('ui_stable')) $('ui_stable').value = SETTINGS.autoStable;
+    }
+  }
+
+  autoLoop() {
+    const tick = async () => {
+      if (!this.autoMode) return;
+      if (!this.isRecognizing) await this.recognizeOnce(true);
+      this.autoTimer = setTimeout(tick, 1300);
+    };
+    tick();
+  }
+
+  captureROIToDetectCanvas() {
+    const zone = document.getElementById('scanZone');
+    const zr = zone.getBoundingClientRect();
+    const vr = this.video.getBoundingClientRect();
+    const inset = 6;
+    const left = zr.left + inset, top = zr.top + inset, zw = zr.width - inset*2, zh = zr.height - inset*2;
+    const relX = left - vr.left, relY = top - vr.top;
+    const srcW = this.video.videoWidth, srcH = this.video.videoHeight;
+    const elW = vr.width, elH = vr.height;
+    const scale = Math.max(elW / srcW, elH / srcH);
+    const shownW = elW / scale, shownH = elH / scale;
+    const offX = (srcW - shownW)/2, offY = (srcH - shownH)/2;
+    const sx = offX + relX/scale, sy = offY + relY/scale, sw = zw/scale, sh = zh/scale;
+    this.detectCtx.drawImage(this.video, sx, sy, sw, sh, 0, 0, this.detectCanvas.width, this.detectCanvas.height);
+    return { sx, sy, sw, sh };
+  }
+
+  async recognizeOnce(isAuto) {
+    if (this.isRecognizing) return;
+    this.isRecognizing = true;
+    const zone = document.getElementById('scanZone');
+    const btn = document.getElementById('recognizeBtn');
+    try {
+      zone.classList.add('active');
+      this.setStatus('Сканирование...');
+      this.captureROIToDetectCanvas();
+      this.normCtx.drawImage(this.detectCanvas, 0, 0, this.detectCanvas.width, this.detectCanvas.height, 0, 0, CONFIG.norm.width, CONFIG.norm.height);
+      let normData = this.normCtx.getImageData(0, 0, CONFIG.norm.width, CONFIG.norm.height);
+      // проверка двух поворотов
+      const r0 = this.recognizer.scoreCandidates(normData);
+      const r180 = this.recognizer.scoreCandidates(FastImgProc.rotate180(normData));
+      const best0 = r0.candidates?.[0]?.total ?? -1;
+      const best180 = r180.candidates?.[0]?.total ?? -1;
+      let chosen = (best180 > best0) ? r180 : r0;
+      let rotation = (best180 > best0) ? 180 : 0;
+      if (this.debugMode && chosen.prep) {
+        // отображение ROI и бинарного угла
+        FastImgProc.drawBinaryToCanvas(chosen.prep.cornerMask, chosen.prep.cornerW, chosen.prep.cornerH, document.getElementById('dbgBin'));
+        const roiCanvas = this.detectCanvas;
+        const ctx = document.getElementById('dbgROI').getContext('2d');
+        ctx.clearRect(0, 0, 160, 224);
+        ctx.drawImage(roiCanvas, 0, 0, 160, 224);
+        this.renderCandidates(chosen.candidates || []);
+        this.renderDebugInfo(chosen, rotation);
+      }
+      zone.classList.remove('active');
+      btn.textContent = '🎯 Распознать';
+      if (chosen.error || !chosen.candidates?.length) throw new Error(chosen.error || 'Нет кандидатов');
+      const best = chosen.candidates[0];
+      const second = chosen.candidates[1];
+      const margin = best.total - (second?.total || 0);
+      if (best.total < SETTINGS.minScore) throw new Error(`Низкая уверенность ${(best.total*100).toFixed(0)}%`);
+      if (margin < SETTINGS.minMargin) throw new Error(`Малый разрыв ${(margin*100).toFixed(1)}%`);
+      if (isAuto && SETTINGS.autoStable > 1) {
+        if (this.lastStableId === best.id) this.stableCount++;
+        else { this.lastStableId = best.id; this.stableCount = 1; }
+        if (this.stableCount < SETTINGS.autoStable) {
+          this.setStatus(`${best.name} (стаб. ${this.stableCount}/${SETTINGS.autoStable})`, '');
+          return;
+        }
+      }
+      this.showResult({ rank: best.rank, suit: best.suit, name: best.name, confidence: Math.round(best.total*100) });
+      this.setStatus(`✅ ${best.name}`, 'ok');
+      this.log(`✓ ${best.name} (${Math.round(best.total*100)}%)`, 'ok');
+      if (navigator.vibrate) navigator.vibrate(50);
+      if (isAuto) { this.lastStableId = null; this.stableCount = 0; }
+    } catch (e) {
+      zone.classList.add('error');
+      setTimeout(() => zone.classList.remove('error'), 600);
+      this.setStatus(e.message, 'error');
+      this.log(`✗ ${e.message}`, 'err');
+    } finally {
+      this.isRecognizing = false;
+      btn.textContent = '🎯 Распознать';
+    }
+  }
+
+  renderCandidates(cands) {
+    const box = document.getElementById('debugCandidates');
+    box.innerHTML = '';
+    cands.slice(0, 4).forEach((c, idx) => {
+      const div = document.createElement('div');
+      div.className = 'cand-line';
+      div.innerHTML = `<div class="cand-left">${idx+1}. ${c.name}</div><div class="cand-right">${(c.total*100).toFixed(1)}%</div>`;
+      box.appendChild(div);
+    });
+  }
+
+  renderDebugInfo(chosen, rot) {
+    const dbg = chosen.debug || {};
+    document.getElementById('debugInfo').innerHTML = `
+      <div class="dbg-line">поворот: ${rot}°</div>
+      <div class="dbg-line">контраст: ${dbg.std || '?'}</div>
+      <div class="dbg-line">подсказка масти: ${dbg.suitHint || '?'}</div>
+      <div class="dbg-line">лучший: ${dbg.best || '-'}</div>
+    `;
+  }
+
+  showResult(card) {
+    const suitInfo = CARDS[card.suit] || { class: '' };
+    document.getElementById('cardSymbol').textContent = `${card.rank}${card.suit}`;
+    document.getElementById('cardSymbol').className = suitInfo.class;
+    document.getElementById('cardTitle').innerText = card.name;
+    document.getElementById('cardConfidence').innerText = `Уверенность: ${card.confidence}%`;
+    const box = document.getElementById('resultCard');
+    box.classList.add('show');
+    setTimeout(() => box.classList.remove('show'), 2200);
+  }
+
+  setStatus(text, type='') { const el = document.getElementById('statusBar'); el.textContent = text; el.className = type; }
+  log(text, type='') {
+    const box = document.getElementById('historyLog');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (type ? ' log-'+type : '');
+    line.textContent = new Date().toLocaleTimeString().slice(-8) + ' ' + text;
+    box.insertBefore(line, box.firstChild);
+    while (box.children.length > 10) box.removeChild(box.lastChild);
+  }
+}
+
+window.addEventListener('load', () => new App());
+</script>
+</body>
+</html>
