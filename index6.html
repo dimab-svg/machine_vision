@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+  <title>Card Recognizer v5 (AutoCrop + Edge+Hash + ORB Homography + Lazy OpenCV)</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+    html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background:#000; }
+    #container { position:relative; width:100vw; height:100vh; height:100dvh; }
+    #video { width:100%; height:100%; object-fit:cover; }
+    #canvas { display:none; }
+
+    /* Верх: зона сканирования */
+    #topArea{
+      position:absolute; top:0; left:0; right:0;
+      padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px;
+      z-index:10;
+    }
+    #scanZone{
+      width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
+      box-shadow:0 0 0 9999px rgba(0,0,0,0.7);
+      flex-shrink:0; position:relative;
+    }
+    #scanZone::before{
+      content:'📍 Наведите карту сюда';
+      position:absolute; bottom:-25px; left:50%; transform:translateX(-50%);
+      color:#4CAF50; font-size:11px; white-space:nowrap;
+    }
+    #scanZone.active { border-color:#FFC107; animation: glow 0.6s infinite; }
+    #scanZone.active::before { color:#FFC107; content:'🔍 Сканирование...'; }
+    #scanZone.error { border-color:#f44336; animation: shake 0.4s; }
+    #scanZone.error::before { color:#f44336; content:'❌ Не распознано'; }
+
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; }
+      50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; }
+    }
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+
+    #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
+    .ctrl-btn{
+      width:40px; height:40px; border-radius:50%;
+      background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3);
+      color:white; font-size:18px; display:flex; align-items:center; justify-content:center;
+      cursor:pointer; transition:0.2s;
+    }
+    .ctrl-btn:active { transform:scale(0.9); }
+    .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
+
+    /* Центр: результат */
+    #resultCard{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.9);
+      background:rgba(255,255,255,0.98); border-radius:16px; padding:20px 30px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
+      opacity:0; transition:0.3s; z-index:100;
+    }
+    #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    #cardSymbol { font-size:72px; font-weight:bold; line-height:1; }
+    #cardTitle { font-size:16px; color:#555; margin-top:8px; font-weight:500; }
+    #cardConfidence { font-size:11px; color:#888; margin-top:4px; }
+    .red{ color:#e53935; } .black{ color:#212121; }
+
+    /* Статус */
+    #statusBar{
+      position:absolute; top:320px; left:50%; transform:translateX(-50%);
+      background:rgba(0,0,0,0.85); color:white;
+      padding:6px 14px; border-radius:12px; font-size:11px; max-width:92%;
+      text-align:center; z-index:10;
+    }
+    #statusBar.error { background: rgba(244,67,54,0.95); }
+    #statusBar.ok { background: rgba(76,175,80,0.95); }
+
+    /* Подсказка */
+    #hint{
+      position:absolute; bottom:150px; left:50%; transform:translateX(-50%);
+      background:rgba(255,255,255,0.95); color:#333;
+      padding:8px 16px; border-radius:20px; font-size:11px;
+      z-index:5; text-align:center; max-width:85%;
+    }
+
+    /* Низ */
+    #bottomArea{
+      position:absolute; bottom:0; left:0; right:0;
+      padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
+      display:flex; flex-direction:column; gap:8px; align-items:center;
+      background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+      z-index:10;
+    }
+    #historyLog{
+      background:rgba(0,0,0,0.7); border-radius:8px; padding:6px 10px;
+      width:100%; max-width:380px; max-height:60px; overflow-y:auto;
+      font-family:monospace; font-size:9px; color:#0f0;
+    }
+    .log-line{ margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .log-err{ color:#f44336; } .log-ok{ color:#4CAF50; } .log-warn{ color:#FFC107; }
+
+    #actionButtons{ display:flex; gap:8px; width:100%; max-width:380px; }
+    .action-btn{
+      flex:1; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%);
+      color:white; border:none; padding:14px 0; border-radius:20px;
+      font-size:14px; font-weight:600; box-shadow:0 4px 15px rgba(102,126,234,0.5);
+      cursor:pointer; transition:0.2s;
+    }
+    .action-btn:active { transform:scale(0.96); }
+    .action-btn.auto{
+      background:linear-gradient(135deg,#FFC107 0%, #FF9800 100%);
+      box-shadow:0 4px 15px rgba(255,193,7,0.5);
+    }
+    .action-btn.auto.on { background:linear-gradient(135deg,#4CAF50 0%, #43A047 100%); }
+
+    /* Settings */
+    #settingsPanel{
+      position:absolute; top:50%; right:10px; transform:translateY(-50%);
+      width:270px;
+      background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
+      z-index:10; display:none;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    #settingsPanel.show{ display:block; }
+    .settings-title{ color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:8px; text-align:center; }
+    .settings-item{ margin:8px 0; }
+    .settings-label{ color:#aaa; font-size:9px; display:flex; justify-content:space-between; gap:10px; margin-bottom:3px; }
+    .settings-value{ color:#0f0; font-size:9px; font-family:monospace; }
+    .settings-row{ display:flex; gap:8px; align-items:center; }
+    .settings-row input[type="range"]{ width:100%; }
+    .settings-row input[type="number"]{
+      width:74px; background:#111; border:1px solid rgba(255,255,255,0.15); color:#fff;
+      border-radius:6px; padding:4px; font-size:11px;
+    }
+    .settings-row input[type="checkbox"]{ transform: scale(1.1); }
+    .settings-btns{ display:flex; gap:8px; margin-top:10px; }
+    .mini-btn{
+      flex:1;
+      background:#222; color:#fff; border:1px solid rgba(255,255,255,0.15);
+      border-radius:8px; padding:8px 0; font-size:11px; cursor:pointer;
+    }
+    .mini-btn:active{ transform:scale(0.98); }
+
+    /* Debug */
+    #debugPanel{
+      position:absolute; top:50%; left:10px; transform:translateY(-50%);
+      width:300px;
+      background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
+      font-family:monospace; font-size:9px; color:#0f0;
+      display:none; z-index:10;
+      border:1px solid rgba(255,255,255,0.08);
+    }
+    #debugPanel.show{ display:block; }
+    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.08); }
+    .dbg-title{ color:#FFC107; font-weight:bold; margin-bottom:6px; }
+    .dbg-subtitle{ color:#9cf; margin:6px 0 4px; font-weight:bold; }
+    .cand-line{ display:flex; justify-content:space-between; gap:10px; }
+    .cand-left{ color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:185px; }
+    .cand-right{ color:#0f0; white-space:nowrap; }
+    .dbg-canvases{ display:flex; gap:6px; margin-top:6px; }
+    .dbg-canvases canvas{
+      width:92px; height:129px;
+      background:#111; border:1px solid rgba(255,255,255,0.12); border-radius:6px;
+    }
+
+    /* Loader */
+    #loader{
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      text-align:center; color:white; background:rgba(0,0,0,0.95);
+      padding:30px; border-radius:16px; z-index:999; min-width:240px;
+      display:block;
+    }
+    .spin{
+      border:4px solid rgba(255,255,255,0.3); border-top:4px solid #667eea;
+      border-radius:50%; width:40px; height:40px; animation: rotate 1s linear infinite;
+      margin:0 auto 15px;
+    }
+    @keyframes rotate { to { transform:rotate(360deg); } }
+    #loaderText{ font-size:13px; margin-bottom:8px; }
+    #loaderSubtext{ font-size:10px; color:#888; }
+
+    #historyLog::-webkit-scrollbar{ width:3px; }
+    #historyLog::-webkit-scrollbar-thumb{ background:#4CAF50; border-radius:2px; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="topArea">
+    <div id="scanZone"></div>
+    <div id="ctrlButtons">
+      <div class="ctrl-btn" id="debugBtn" title="Отладка">🐛</div>
+      <div class="ctrl-btn" id="settingsBtn" title="Настройки">⚙️</div>
+      <div class="ctrl-btn" id="switchBtn" title="Камера">📷</div>
+    </div>
+  </div>
+
+  <div id="resultCard">
+    <div id="cardSymbol">?</div>
+    <div id="cardTitle">Ожидание...</div>
+    <div id="cardConfidence"></div>
+  </div>
+
+  <div id="statusBar">Наведите камеру на карту</div>
+  <div id="hint">Для наклона лучше включить “ORB+Homography (OpenCV)” в настройках. Уменьшите яркость монитора, избегайте бликов.</div>
+
+  <div id="bottomArea">
+    <div id="historyLog"></div>
+    <div id="actionButtons">
+      <button class="action-btn" id="recognizeBtn">🎯 Распознать</button>
+      <button class="action-btn auto" id="autoBtn">🔄 Авто</button>
+    </div>
+  </div>
+
+  <div id="settingsPanel">
+    <div class="settings-title">⚙️ НАСТРОЙКИ</div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Порог (minScore)</span><span class="settings-value" id="ui_minScoreVal"></span></div>
+      <div class="settings-row"><input id="ui_minScore" type="range" min="50" max="95" step="1"></div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Разрыв (minMargin)</span><span class="settings-value" id="ui_minMarginVal"></span></div>
+      <div class="settings-row"><input id="ui_minMargin" type="range" min="0" max="15" step="1"></div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Adaptive window (odd)</span><span class="settings-value" id="ui_adaptWinVal"></span></div>
+      <div class="settings-row">
+        <input id="ui_adaptWin" type="number" min="7" max="41" step="2">
+        <span style="color:#888;font-size:10px;">(7..41)</span>
+      </div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Adaptive C</span><span class="settings-value" id="ui_adaptCVal"></span></div>
+      <div class="settings-row"><input id="ui_adaptC" type="range" min="0" max="20" step="1"></div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Сдвиг (maxShift)</span><span class="settings-value" id="ui_maxShiftVal"></span></div>
+      <div class="settings-row"><input id="ui_maxShift" type="range" min="0" max="6" step="1"></div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>AutoCrop карты</span><span class="settings-value" id="ui_cropVal"></span></div>
+      <div class="settings-row">
+        <input id="ui_useCrop" type="checkbox">
+        <span style="color:#888;font-size:10px;">срезает фон</span>
+      </div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>ORB+Homography (OpenCV)</span><span class="settings-value" id="ui_orbVal"></span></div>
+      <div class="settings-row">
+        <input id="ui_useORB" type="checkbox">
+        <span style="color:#888;font-size:10px;">лучше под наклоном</span>
+      </div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>ORB top-K</span><span class="settings-value" id="ui_orbKVal"></span></div>
+      <div class="settings-row"><input id="ui_orbK" type="range" min="1" max="4" step="1"></div>
+    </div>
+
+    <div class="settings-item">
+      <div class="settings-label"><span>Стабильность (авто)</span><span class="settings-value" id="ui_stableVal"></span></div>
+      <div class="settings-row"><input id="ui_stable" type="range" min="1" max="3" step="1"></div>
+    </div>
+
+    <div class="settings-btns">
+      <button class="mini-btn" id="ui_resetBtn">Сброс</button>
+      <button class="mini-btn" id="ui_closeBtn">Закрыть</button>
+    </div>
+
+    <div style="margin-top:8px; color:#888; font-size:9px; line-height:1.3;">
+      Шаблоны: <span id="ui_templatesVal" class="settings-value"></span><br/>
+      Нормализация: <span class="settings-value" id="ui_normVal"></span>
+    </div>
+  </div>
+
+  <div id="debugPanel">
+    <div class="dbg-title">🔬 DEBUG</div>
+    <div id="debugInfo"></div>
+    <div class="dbg-subtitle">Top кандидаты</div>
+    <div id="debugCandidates"></div>
+    <div class="dbg-subtitle">Кадры</div>
+    <div class="dbg-canvases">
+      <canvas id="dbgROI" width="200" height="280" title="ROI"></canvas>
+      <canvas id="dbgNorm" width="200" height="280" title="Norm"></canvas>
+      <canvas id="dbgWarp" width="200" height="280" title="Warp(ORB/H)"></canvas>
+      <canvas id="dbgBin" width="200" height="280" title="Binary corner"></canvas>
+    </div>
+  </div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <div id="loaderText">Инициализация...</div>
+    <div id="loaderSubtext">Загрузка шаблонов и запуск камеры</div>
+  </div>
+</div>
+
+<script>
+/* ===========================
+   CONFIG
+=========================== */
+const CONFIG = {
+  norm: { width: 200, height: 280 },
+  small: { width: 96, height: 134 },     // для full NCC
+  edge:  { width: 64, height: 90 },      // для edge NCC
+  hash:  { width: 9, height: 8 },        // dHash (9x8 comparisons -> 8x8 bits)
+  corner: { wRatio: 0.35, hRatio: 0.35 },
+
+  templatesDir: 'templates',
+  templates: [
+    { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей' },
+    { id:'8p',  file:'8p.jpg',  rank:'8',  suit:'♠', name:'8 Пик' },
+    { id:'9tr', file:'9tr.jpg', rank:'9',  suit:'♣', name:'9 Треф' },
+    { id:'10b', file:'10b.jpg', rank:'10', suit:'♦', name:'10 Бубен' },
+    { id:'dh',  file:'dh.jpg',  rank:'Q',  suit:'♥', name:'Дама Червей' },
+    { id:'kp',  file:'kp.jpg',  rank:'K',  suit:'♠', name:'Король Пик' },
+    { id:'tb',  file:'tb.jpg',  rank:'A',  suit:'♦', name:'Туз Бубен' },
+    { id:'vtr', file:'vtr.jpg', rank:'J',  suit:'♣', name:'Валет Треф' }
+  ],
+
+  video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
+};
+
+const CARDS = {
+  '♥': { class:'red',  color:'red' },
+  '♦': { class:'red',  color:'red' },
+  '♠': { class:'black',color:'black' },
+  '♣': { class:'black',color:'black' }
+};
+
+/* ===========================
+   SETTINGS
+=========================== */
+const DEFAULT_SETTINGS = {
+  minScore: 0.82,
+  minMargin: 0.03,
+  adaptiveWindow: 15,
+  adaptiveC: 7,
+  blur3x3: true,
+  maxShift: 2,
+  minStd: 16,
+
+  useCrop: true,
+
+  // weights (будут нормализованы на активные признаки)
+  wCorner: 0.48,
+  wFull:   0.25,
+  wEdge:   0.14,
+  wHash:   0.08,
+  wSuit:   0.05,
+
+  useORB: false,
+  orbTopK: 2,
+  wORB: 0.25,           // добавочный вес при наличии ORB (будет включаться в нормализацию)
+
+  autoStable: 2
+};
+
+const SETTINGS_KEY = 'cardrec_v5_settings';
+let SETTINGS = loadSettings();
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return structuredClone(DEFAULT_SETTINGS);
+    const s = JSON.parse(raw);
+    return { ...structuredClone(DEFAULT_SETTINGS), ...s };
+  } catch {
+    return structuredClone(DEFAULT_SETTINGS);
+  }
+}
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS));
+}
+
+/* ===========================
+   Lazy OpenCV loader:
+   1) try local vendor/opencv/opencv.js (offline)
+   2) fallback to CDN
+=========================== */
+let __cvPromise = null;
+async function ensureOpenCVLazy() {
+  if (window.cv?.Mat) return true;
+  if (__cvPromise) return __cvPromise;
+
+  const tryLoad = (src, locatePrefix) => new Promise((resolve) => {
+    // locateFile for wasm (only needed for local builds like techstark)
+    window.Module = window.Module || {};
+    window.Module.locateFile = (path) => locatePrefix ? (locatePrefix + path) : path;
+
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+
+    script.onload = () => {
+      const done = () => resolve(!!window.cv?.Mat);
+      if (window.cv && 'onRuntimeInitialized' in window.cv) {
+        cv.onRuntimeInitialized = done;
+      } else if (window.Module && 'onRuntimeInitialized' in window.Module) {
+        Module.onRuntimeInitialized = done;
+      } else {
+        setTimeout(done, 0);
+      }
+    };
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+
+  __cvPromise = (async () => {
+    // local first
+    const okLocal = await tryLoad('vendor/opencv/opencv.js', 'vendor/opencv/');
+    if (okLocal) return true;
+    // CDN fallback
+    const okCdn = await tryLoad('https://docs.opencv.org/4.x/opencv.js', null);
+    return okCdn;
+  })();
+
+  return __cvPromise;
+}
+
+/* ===========================
+   ImgProc (JS)
+=========================== */
+class ImgProc {
+  static toGray(imageData){
+    const {data,width,height}=imageData;
+    const gray=new Uint8ClampedArray(width*height);
+    for(let i=0,p=0;i<data.length;i+=4,p++){
+      gray[p]=(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2])|0;
+    }
+    return {gray,width,height};
+  }
+  static stdDev(gray){
+    const n=gray.length;
+    let sum=0,sum2=0;
+    for(let i=0;i<n;i++){ const v=gray[i]; sum+=v; sum2+=v*v; }
+    const mean=sum/n;
+    const varr=Math.max(1e-9, (sum2/n) - mean*mean);
+    return Math.sqrt(varr);
+  }
+  static blur3x3(gray,w,h){
+    const out=new Uint8ClampedArray(gray.length);
+    const idx=(x,y)=>y*w+x;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      let sum=0,c=0;
+      for(let dy=-1;dy<=1;dy++){
+        const yy=y+dy; if(yy<0||yy>=h) continue;
+        for(let dx=-1;dx<=1;dx++){
+          const xx=x+dx; if(xx<0||xx>=w) continue;
+          sum+=gray[idx(xx,yy)]; c++;
+        }
+      }
+      out[idx(x,y)]=(sum/c)|0;
+    }
+    return out;
+  }
+  static adaptiveThreshold(gray,w,h,winSize=15,C=7){
+    const half=(winSize/2)|0;
+    const iw=w+1, ih=h+1;
+    const integral=new Uint32Array(iw*ih);
+    for(let y=1;y<=h;y++){
+      let rowSum=0;
+      for(let x=1;x<=w;x++){
+        rowSum += gray[(y-1)*w+(x-1)];
+        integral[y*iw+x]=integral[(y-1)*iw+x]+rowSum;
+      }
+    }
+    const sumRect=(x1,y1,x2,y2)=>{
+      const A=integral[y1*iw+x1];
+      const B=integral[y1*iw+(x2+1)];
+      const Cc=integral[(y2+1)*iw+x1];
+      const D=integral[(y2+1)*iw+(x2+1)];
+      return D-B-Cc+A;
+    };
+    const mask=new Uint8Array(w*h);
+    for(let y=0;y<h;y++){
+      const y1=Math.max(0,y-half), y2=Math.min(h-1,y+half);
+      for(let x=0;x<w;x++){
+        const x1=Math.max(0,x-half), x2=Math.min(w-1,x+half);
+        const area=(x2-x1+1)*(y2-y1+1);
+        const mean=sumRect(x1,y1,x2,y2)/area;
+        const g=gray[y*w+x];
+        mask[y*w+x]=(g < (mean - C)) ? 1 : 0;
+      }
+    }
+    return mask;
+  }
+  static extractCorner(imageData){
+    const w=imageData.width,h=imageData.height;
+    const cw=Math.max(1, Math.floor(w*CONFIG.corner.wRatio));
+    const ch=Math.max(1, Math.floor(h*CONFIG.corner.hRatio));
+    const tmp=document.createElement('canvas');
+    tmp.width=w; tmp.height=h;
+    tmp.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+
+    const c=document.createElement('canvas');
+    c.width=cw; c.height=ch;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(tmp,0,0,cw,ch,0,0,cw,ch);
+    return ctx.getImageData(0,0,cw,ch);
+  }
+  static matchBinary(maskA,maskB,w,h,maxShift=2){
+    let best=-1, bestShift={dx:0,dy:0};
+    for(let dy=-maxShift;dy<=maxShift;dy++){
+      for(let dx=-maxShift;dx<=maxShift;dx++){
+        let xor=0,total=0;
+        for(let y=0;y<h;y++){
+          const yy=y+dy; if(yy<0||yy>=h) continue;
+          const rowA=y*w,rowB=yy*w;
+          for(let x=0;x<w;x++){
+            const xx=x+dx; if(xx<0||xx>=w) continue;
+            xor += (maskA[rowA+x] ^ maskB[rowB+xx]);
+            total++;
+          }
+        }
+        if(!total) continue;
+        const score=1-(xor/total);
+        if(score>best){ best=score; bestShift={dx,dy}; }
+      }
+    }
+    return {score:best,shift:bestShift};
+  }
+  static arrayStats(a){
+    const n=a.length;
+    let sum=0,sum2=0;
+    for(let i=0;i<n;i++){ const v=a[i]; sum+=v; sum2+=v*v; }
+    const mean=sum/n;
+    const varr=Math.max(1e-9,(sum2/n)-mean*mean);
+    return {n,mean,std:Math.sqrt(varr)};
+  }
+  static ncc01(a,aStats,b,bStats){
+    const n=aStats.n;
+    let sumAB=0;
+    for(let i=0;i<n;i++) sumAB += a[i]*b[i];
+    const numer = sumAB - n*aStats.mean*bStats.mean;
+    const denom = (n*aStats.std*bStats.std) || 1e-9;
+    const ncc = numer/denom;
+    return Math.max(0,Math.min(1,(ncc+1)/2));
+  }
+  static downsampleToGray(imageData,newW,newH){
+    const src=document.createElement('canvas');
+    src.width=imageData.width; src.height=imageData.height;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+
+    const c=document.createElement('canvas');
+    c.width=newW; c.height=newH;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src,0,0,imageData.width,imageData.height,0,0,newW,newH);
+    const small=ctx.getImageData(0,0,newW,newH);
+    return ImgProc.toGray(small).gray;
+  }
+  static rotate180(imageData){
+    const w=imageData.width,h=imageData.height;
+    const src=imageData.data;
+    const out=new ImageData(w,h);
+    const dst=out.data;
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const si=(y*w+x)*4;
+        const di=((h-1-y)*w+(w-1-x))*4;
+        dst[di]=src[si]; dst[di+1]=src[si+1]; dst[di+2]=src[si+2]; dst[di+3]=src[si+3];
+      }
+    }
+    return out;
+  }
+  static redRatio(normData){
+    const corner=ImgProc.extractCorner(normData);
+    const d=corner.data;
+    let red=0,total=0;
+    for(let i=0;i<d.length;i+=4){
+      const r=d[i],g=d[i+1],b=d[i+2];
+      const br=(r+g+b)/3;
+      if(br<40||br>245) continue;
+      if(r>g+18 && r>b+18) red++;
+      total++;
+    }
+    return total? (red/total):0;
+  }
+
+  // AutoCrop: ищем bbox "не белого" и ресайзим обратно в norm
+  static autoCropCard(normData, whiteThr=245, pad=6){
+    const {gray,width:w,height:h}=ImgProc.toGray(normData);
+    let minX=w, minY=h, maxX=-1, maxY=-1;
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w;x++){
+        const g=gray[y*w+x];
+        if(g < whiteThr){
+          if(x<minX)minX=x;
+          if(y<minY)minY=y;
+          if(x>maxX)maxX=x;
+          if(y>maxY)maxY=y;
+        }
+      }
+    }
+    // если почти всё белое — не кропаем
+    if(maxX<0) return { imageData: normData, debug:{cropped:false, reason:'all-white'} };
+
+    minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
+    maxX=Math.min(w-1,maxX+pad); maxY=Math.min(h-1,maxY+pad);
+    const cw=maxX-minX+1, ch=maxY-minY+1;
+    if(cw<40 || ch<60) return { imageData: normData, debug:{cropped:false, reason:'bbox-too-small'} };
+
+    const src=document.createElement('canvas');
+    src.width=w; src.height=h;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(normData,0,0);
+
+    const dst=document.createElement('canvas');
+    dst.width=CONFIG.norm.width; dst.height=CONFIG.norm.height;
+    const ctx=dst.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,dst.width,dst.height);
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src, minX, minY, cw, ch, 0, 0, dst.width, dst.height);
+
+    const out=ctx.getImageData(0,0,dst.width,dst.height);
+    return { imageData: out, debug:{cropped:true, bbox:`${minX},${minY},${cw}x${ch}`} };
+  }
+
+  // Edge feature: Sobel magnitude on downsample
+  static sobelEdgeDownsample(normData, newW, newH){
+    const gray = ImgProc.downsampleToGray(normData, newW, newH);
+    const w=newW, h=newH;
+    const out=new Uint8ClampedArray(w*h);
+
+    const idx=(x,y)=>y*w+x;
+    for(let y=1;y<h-1;y++){
+      for(let x=1;x<w-1;x++){
+        const gx =
+          -1*gray[idx(x-1,y-1)] + 1*gray[idx(x+1,y-1)] +
+          -2*gray[idx(x-1,y)]   + 2*gray[idx(x+1,y)] +
+          -1*gray[idx(x-1,y+1)] + 1*gray[idx(x+1,y+1)];
+        const gy =
+          -1*gray[idx(x-1,y-1)] + -2*gray[idx(x,y-1)] + -1*gray[idx(x+1,y-1)] +
+           1*gray[idx(x-1,y+1)] +  2*gray[idx(x,y+1)] +  1*gray[idx(x+1,y+1)];
+        const mag = Math.min(255, Math.abs(gx) + Math.abs(gy));
+        out[idx(x,y)] = mag;
+      }
+    }
+    return out; // 0..255
+  }
+
+  static dHash64(normData){
+    // compute dHash 64-bit as two 32-bit ints
+    const w=CONFIG.hash.width, h=CONFIG.hash.height; // 9x8
+    const gray=ImgProc.downsampleToGray(normData, w, h);
+
+    let hi=0, lo=0;
+    // comparisons: for each row, compare x and x+1 for x=0..7 => 8 bits * 8 rows = 64
+    let bit=0;
+    for(let y=0;y<h;y++){
+      for(let x=0;x<w-1;x++){
+        const a=gray[y*w+x];
+        const b=gray[y*w+(x+1)];
+        const v = (a > b) ? 1 : 0; // 1 if left brighter
+        if(bit < 32) {
+          hi = (hi << 1) | v;
+        } else {
+          lo = (lo << 1) | v;
+        }
+        bit++;
+      }
+    }
+    // ensure unsigned
+    hi >>>= 0; lo >>>= 0;
+    return {hi, lo};
+  }
+
+  static popcnt32(x){
+    x = x - ((x >>> 1) & 0x55555555);
+    x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+    return (((x + (x >>> 4)) & 0x0F0F0F0F) * 0x01010101) >>> 24;
+  }
+
+  static hashSimilarity01(h1, h2){
+    const xhi = (h1.hi ^ h2.hi) >>> 0;
+    const xlo = (h1.lo ^ h2.lo) >>> 0;
+    const dist = ImgProc.popcnt32(xhi) + ImgProc.popcnt32(xlo); // 0..64
+    return 1 - (dist / 64);
+  }
+
+  static drawBinaryCornerToCanvas(mask, w, h, canvas){
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const img=ctx.createImageData(w,h);
+    const d=img.data;
+    for(let i=0,p=0;i<d.length;i+=4,p++){
+      const v = mask[p] ? 0 : 255;
+      d[i]=d[i+1]=d[i+2]=v;
+      d[i+3]=255;
+    }
+    const tmp=document.createElement('canvas');
+    tmp.width=w; tmp.height=h;
+    tmp.getContext('2d',{willReadFrequently:true}).putImageData(img,0,0);
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
+  }
+}
+
+/* ===========================
+   TemplateLoader
+=========================== */
+class TemplateLoader {
+  static async loadImage(url){
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=()=>reject(new Error('Не удалось загрузить: '+url));
+      img.src=url;
+    });
+  }
+
+  static drawToNormCanvas(img){
+    const c=document.createElement('canvas');
+    c.width=CONFIG.norm.width; c.height=CONFIG.norm.height;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,c.width,c.height);
+
+    // contain
+    const scale=Math.min(c.width/img.naturalWidth, c.height/img.naturalHeight);
+    const dw=img.naturalWidth*scale;
+    const dh=img.naturalHeight*scale;
+    const dx=(c.width-dw)/2;
+    const dy=(c.height-dh)/2;
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,dx,dy,dw,dh);
+
+    return c;
+  }
+
+  static preprocess(normData, suit){
+    // optional crop
+    let cropDbg = {cropped:false};
+    if (SETTINGS.useCrop) {
+      const cr = ImgProc.autoCropCard(normData);
+      normData = cr.imageData;
+      cropDbg = cr.debug;
+    }
+
+    // presence metric
+    const {gray:fullGray}=ImgProc.toGray(normData);
+    const std=ImgProc.stdDev(fullGray);
+
+    // corner mask
+    const corner=ImgProc.extractCorner(normData);
+    let {gray:cgray,width:cw,height:ch}=ImgProc.toGray(corner);
+    if(SETTINGS.blur3x3) cgray=ImgProc.blur3x3(cgray,cw,ch);
+    const cornerMask=ImgProc.adaptiveThreshold(cgray,cw,ch,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
+
+    // full NCC
+    const fullSmall=ImgProc.downsampleToGray(normData, CONFIG.small.width, CONFIG.small.height);
+    const fullStats=ImgProc.arrayStats(fullSmall);
+
+    // edge NCC
+    const edgeSmall=ImgProc.sobelEdgeDownsample(normData, CONFIG.edge.width, CONFIG.edge.height);
+    const edgeStats=ImgProc.arrayStats(edgeSmall);
+
+    // hash
+    const hash=ImgProc.dHash64(normData);
+
+    // suit hint (template known)
+    const suitColor = (CARDS[suit]?.color || 'black');
+
+    return {
+      normData,
+      std,
+      cornerMask, cornerW:cw, cornerH:ch,
+      fullSmall, fullStats,
+      edgeSmall, edgeStats,
+      hash,
+      suitColor,
+      cropDbg
+    };
+  }
+
+  static async loadAllTemplates(){
+    const out={};
+    for(const card of CONFIG.templates){
+      const url = `${CONFIG.templatesDir}/${card.file}`;
+      const img=await this.loadImage(url);
+      const normCanvas=this.drawToNormCanvas(img);
+      const ctx=normCanvas.getContext('2d',{willReadFrequently:true});
+      let normData=ctx.getImageData(0,0,CONFIG.norm.width,CONFIG.norm.height);
+
+      const prep=this.preprocess(normData, card.suit);
+
+      out[card.id]={
+        ...card,
+        url,
+        normCanvas,
+        ...prep
+      };
+    }
+    return out;
+  }
+}
+
+/* ===========================
+   ORB Homography refiner (OpenCV)
+   - use only on top-K candidates
+=========================== */
+class OrbHomographyRefiner {
+  constructor() {
+    this.ready = false;
+    this.templateCache = new Map(); // id -> {kp, desc}
+  }
+
+  async ensureReady(templates) {
+    const ok = await ensureOpenCVLazy();
+    if (!ok) return false;
+    this.templates = templates;
+    this.ready = true;
+    return true;
+  }
+
+  _matFromImageData(imageData) {
+    const c=document.createElement('canvas');
+    c.width=imageData.width; c.height=imageData.height;
+    c.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+    let mat = cv.imread(c); // RGBA
+    let gray = new cv.Mat();
+    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+    mat.delete();
+    return gray;
+  }
+
+  _orbDetect(grayMat) {
+    const orb = new cv.ORB(700, 1.2, 8, 31, 0, 2, cv.ORB_HARRIS_SCORE, 31, 10);
+    const kp = new cv.KeyPointVector();
+    const desc = new cv.Mat();
+    orb.detectAndCompute(grayMat, new cv.Mat(), kp, desc);
+    orb.delete();
+    return { kp, desc };
+  }
+
+  _getTemplateFeatures(id) {
+    if (this.templateCache.has(id)) return this.templateCache.get(id);
+    const t = this.templates[id];
+    const gray = this._matFromImageData(t.normData);
+    const feat = this._orbDetect(gray);
+    gray.delete();
+    this.templateCache.set(id, feat);
+    return feat;
+  }
+
+  // returns {success, warpedImageData, inliers, goodMatches, score01, debug}
+  refine(inputImageData, templateId) {
+    const debug = {};
+    if (!this.ready) return {success:false, debug:{reason:'ORB not ready'}};
+
+    let g1=null,g2=null, feat1=null, feat2=null;
+    let matches=null, bf=null, knn=null;
+    let H=null, mask=null, warped=null;
+
+    try {
+      const t = this.templates[templateId];
+      g1 = this._matFromImageData(inputImageData);
+      g2 = this._matFromImageData(t.normData);
+
+      feat1 = this._orbDetect(g1);
+      feat2 = this._getTemplateFeatures(templateId);
+
+      debug.kp1 = feat1.kp.size();
+      debug.kp2 = feat2.kp.size();
+
+      if (feat1.desc.empty() || feat2.desc.empty()) {
+        return {success:false, debug:{...debug, reason:'empty descriptors'}};
+      }
+
+      // KNN matching + ratio test
+      bf = new cv.BFMatcher(cv.NORM_HAMMING, false);
+      knn = new cv.DMatchVectorVector();
+      bf.knnMatch(feat1.desc, feat2.desc, knn, 2);
+
+      const good = [];
+      const ratio = 0.75;
+      for (let i=0;i<knn.size();i++){
+        const v = knn.get(i);
+        if (v.size() < 2) { v.delete(); continue; }
+        const m1 = v.get(0);
+        const m2 = v.get(1);
+        if (m1.distance < ratio * m2.distance) {
+          good.push(m1);
+        }
+        v.delete();
+      }
+      debug.goodMatches = good.length;
+
+      if (good.length < 12) {
+        return {success:false, debug:{...debug, reason:'too few good matches'}};
+      }
+
+      // build point arrays
+      const srcPts = [];
+      const dstPts = [];
+      for (const m of good) {
+        const p1 = feat1.kp.get(m.queryIdx).pt;
+        const p2 = feat2.kp.get(m.trainIdx).pt;
+        srcPts.push(p1.x, p1.y);
+        dstPts.push(p2.x, p2.y);
+      }
+
+      const srcMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, srcPts);
+      const dstMat = cv.matFromArray(good.length, 1, cv.CV_32FC2, dstPts);
+
+      mask = new cv.Mat();
+      H = cv.findHomography(srcMat, dstMat, cv.RANSAC, 3.0, mask);
+
+      srcMat.delete(); dstMat.delete();
+
+      if (H.empty()) {
+        return {success:false, debug:{...debug, reason:'homography empty'}};
+      }
+
+      // inliers count
+      let inliers = 0;
+      for (let i=0;i<mask.rows;i++) {
+        if (mask.ucharAt(i,0)) inliers++;
+      }
+      debug.inliers = inliers;
+      debug.inlierRatio = (inliers / good.length).toFixed(2);
+
+      if (inliers < 10) {
+        return {success:false, debug:{...debug, reason:'too few inliers'}};
+      }
+
+      // warp input to template plane
+      warped = new cv.Mat();
+      cv.warpPerspective(
+        g1, warped, H,
+        new cv.Size(CONFIG.norm.width, CONFIG.norm.height),
+        cv.INTER_LINEAR,
+        cv.BORDER_CONSTANT,
+        new cv.Scalar(255,255,255,255)
+      );
+
+      // convert warped to ImageData via canvas
+      const c=document.createElement('canvas');
+      c.width=CONFIG.norm.width; c.height=CONFIG.norm.height;
+      cv.imshow(c, warped);
+      const wctx=c.getContext('2d',{willReadFrequently:true});
+      const warpedImageData=wctx.getImageData(0,0,c.width,c.height);
+
+      // simple ORB score = clamp(inliers / 40)
+      const orbScore = Math.max(0, Math.min(1, inliers / 40));
+
+      return { success:true, warpedImageData, inliers, goodMatches: good.length, score01: orbScore, debug };
+
+    } catch (e) {
+      return {success:false, debug:{...debug, error:e.message}};
+    } finally {
+      if (g1) g1.delete();
+      if (g2) g2.delete();
+      if (feat1) { feat1.kp.delete(); feat1.desc.delete(); }
+      // feat2 is cached => do not delete
+      if (bf) bf.delete();
+      if (knn) knn.delete();
+      if (H) H.delete();
+      if (mask) mask.delete();
+      if (warped) warped.delete();
+    }
+  }
+}
+
+/* ===========================
+   Recognizer
+=========================== */
+class CardRecognizer {
+  constructor(){
+    this.templates={};
+    this.ready=false;
+    this.orb = new OrbHomographyRefiner();
+  }
+
+  async loadTemplates(){
+    this.templates = await TemplateLoader.loadAllTemplates();
+    const keys = Object.keys(this.templates);
+    this.ready = keys.length > 0;
+
+    // размеры corner у всех должны совпадать (как sanity)
+    if (this.ready) {
+      const t0 = this.templates[keys[0]];
+      this.cornerW = t0.cornerW;
+      this.cornerH = t0.cornerH;
+    }
+
+    return { success:this.ready, loaded:keys.length, total:CONFIG.templates.length };
+  }
+
+  preprocessInput(normData){
+    // это место вы показывали; оставляю стиль близким:
+    const {gray:fullGray}=ImgProc.toGray(normData);
+    const std=ImgProc.stdDev(fullGray);
+
+    // optional crop
+    let cropDbg={cropped:false};
+    if (SETTINGS.useCrop) {
+      const cr = ImgProc.autoCropCard(normData);
+      normData = cr.imageData;
+      cropDbg = cr.debug;
+    }
+
+    // corner
+    const corner=ImgProc.extractCorner(normData);
+    let {gray:cgray,width:cw,height:ch}=ImgProc.toGray(corner);
+    if(SETTINGS.blur3x3) cgray=ImgProc.blur3x3(cgray,cw,ch);
+    const cornerMask=ImgProc.adaptiveThreshold(cgray,cw,ch,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
+
+    // full
+    const fullSmall=ImgProc.downsampleToGray(normData, CONFIG.small.width, CONFIG.small.height);
+    const fullStats=ImgProc.arrayStats(fullSmall);
+
+    // edge
+    const edgeSmall=ImgProc.sobelEdgeDownsample(normData, CONFIG.edge.width, CONFIG.edge.height);
+    const edgeStats=ImgProc.arrayStats(edgeSmall);
+
+    // hash
+    const hash=ImgProc.dHash64(normData);
+
+    // suit hint
+    const redRatio=ImgProc.redRatio(normData);
+    const suitHint = (redRatio > 0.08) ? 'red' : 'black';
+
+    return {
+      normData,
+      std,
+      cornerMask, cornerW:cw, cornerH:ch,
+      fullSmall, fullStats,
+      edgeSmall, edgeStats,
+      hash,
+      redRatio, suitHint,
+      cropDbg
+    };
+  }
+
+  _combine(parts, weights){
+    // parts: {corner, full, edge, hash, suit, orb?}
+    // weights normalized only over provided numeric parts
+    let sumW=0;
+    for (const [k,v] of Object.entries(parts)) {
+      if (typeof v === 'number' && isFinite(v)) sumW += (weights[k] || 0);
+    }
+    if (sumW <= 0) return 0;
+    let total=0;
+    for (const [k,v] of Object.entries(parts)) {
+      if (typeof v === 'number' && isFinite(v)) {
+        total += (weights[k] || 0) * v;
+      }
+    }
+    return total / sumW;
+  }
+
+  scoreCandidates(prep){
+    const candidates=[];
+    const weightsBase = {
+      corner: SETTINGS.wCorner,
+      full:   SETTINGS.wFull,
+      edge:   SETTINGS.wEdge,
+      hash:   SETTINGS.wHash,
+      suit:   SETTINGS.wSuit
+    };
+
+    for (const [id,t] of Object.entries(this.templates)) {
+      const mb = ImgProc.matchBinary(prep.cornerMask, t.cornerMask, t.cornerW, t.cornerH, SETTINGS.maxShift);
+      const full = ImgProc.ncc01(prep.fullSmall, prep.fullStats, t.fullSmall, t.fullStats);
+      const edge = ImgProc.ncc01(prep.edgeSmall, prep.edgeStats, t.edgeSmall, t.edgeStats);
+      const hash = ImgProc.hashSimilarity01(prep.hash, t.hash);
+      const suit = ((t.suitColor === prep.suitHint) ? 1.0 : 0.55);
+
+      const total = this._combine({corner:mb.score, full, edge, hash, suit}, weightsBase);
+
+      candidates.push({
+        id,
+        name: t.name,
+        rank: t.rank,
+        suit: t.suit,
+        total,
+        corner: mb.score,
+        full, edge, hash,
+        suitPrior: suit,
+        shift: mb.shift,
+        orb: null,
+        orbInliers: null
+      });
+    }
+
+    candidates.sort((a,b)=>b.total-a.total);
+    return candidates;
+  }
+
+  async refineWithORBIfEnabled(originalNormData, candidates, debug){
+    if (!SETTINGS.useORB) return { candidates, warpedForBest:null };
+
+    // lazy openCV only if ORB enabled
+    debug.orb = 'loading...';
+    const ok = await this.orb.ensureReady(this.templates);
+    if (!ok) {
+      debug.orb = 'OpenCV unavailable';
+      return { candidates, warpedForBest:null };
+    }
+    debug.orb = 'ON';
+
+    const topK = Math.max(1, Math.min(4, SETTINGS.orbTopK|0));
+    const list = candidates.slice(0, topK);
+
+    let bestWarp = null;
+
+    // We refine by warping input onto each template plane and re-scoring
+    for (const c of list) {
+      const r = this.orb.refine(originalNormData, c.id);
+      if (!r.success) {
+        c.orb = 0;
+        c.orbInliers = 0;
+        c.orbDebug = r.debug?.reason || r.debug?.error || 'fail';
+        continue;
+      }
+
+      c.orb = r.score01;
+      c.orbInliers = r.inliers;
+      c.orbDebug = `inl=${r.inliers}, good=${r.goodMatches}`;
+
+      // recompute scores on warped image (much more stable under tilt)
+      const prepW = this.preprocessInput(r.warpedImageData);
+      const rescored = this.scoreCandidates(prepW).find(x => x.id === c.id);
+
+      if (rescored) {
+        // merge: baseTotal vs warpedTotal + ORB
+        const weights = {
+          corner: SETTINGS.wCorner,
+          full:   SETTINGS.wFull,
+          edge:   SETTINGS.wEdge,
+          hash:   SETTINGS.wHash,
+          suit:   SETTINGS.wSuit,
+          orb:    SETTINGS.wORB
+        };
+
+        // orb adds as separate part; warped total used as "visual" part
+        const visual = rescored.total;
+        const total2 = this._combine(
+          { corner: rescored.corner, full: rescored.full, edge: rescored.edge, hash: rescored.hash, suit: rescored.suitPrior, orb: c.orb },
+          weights
+        );
+
+        // update candidate with refined data
+        c.corner = rescored.corner;
+        c.full   = rescored.full;
+        c.edge   = rescored.edge;
+        c.hash   = rescored.hash;
+        c.suitPrior = rescored.suitPrior;
+        c.total = total2;
+        c.shift = rescored.shift;
+
+        // save best warp preview
+        if (!bestWarp || total2 > bestWarp.score) {
+          bestWarp = { imageData: r.warpedImageData, score: total2, id: c.id };
+        }
+      }
+    }
+
+    // resort after refinement
+    candidates.sort((a,b)=>b.total-a.total);
+
+    return { candidates, warpedForBest: bestWarp?.imageData || null };
+  }
+
+  async recognize(normData){
+    const debug = {};
+    if (!this.ready) return { error:'Шаблоны не готовы', debug, candidates:[] };
+
+    // preprocess
+    const prep0 = this.preprocessInput(normData);
+    debug.std = prep0.std.toFixed(1);
+    debug.redRatio = (prep0.redRatio*100).toFixed(1) + '%';
+    debug.suitHint = prep0.suitHint;
+    debug.crop = prep0.cropDbg?.cropped ? ('YES ' + (prep0.cropDbg.bbox||'')) : ('NO ' + (prep0.cropDbg.reason||''));
+
+    if (prep0.std < SETTINGS.minStd) {
+      return { error:`Мало деталей (контраст ${debug.std})`, debug, candidates:[], prep:prep0 };
+    }
+
+    // Try rotation 0 and 180 (у карт индексы зеркальные => 180 часто ок)
+    const cands0 = this.scoreCandidates(prep0);
+    const norm180 = ImgProc.rotate180(normData);
+    const prep180 = this.preprocessInput(norm180);
+    const cands180 = this.scoreCandidates(prep180);
+
+    const best0 = cands0[0], best180 = cands180[0];
+    let rotation = 0;
+    let chosenNorm = normData;
+    let chosenPrep = prep0;
+    let candidates = cands0;
+
+    if ((best180?.total ?? -1) > (best0?.total ?? -1)) {
+      rotation = 180;
+      chosenNorm = norm180;
+      chosenPrep = prep180;
+      candidates = cands180;
+    }
+
+    debug.rotation = rotation + '°';
+    debug.bestQuick = candidates[0] ? `${candidates[0].name} ${(candidates[0].total*100).toFixed(1)}%` : 'N/A';
+
+    // ORB refine (optional)
+    let warpedForBest = null;
+    const ref = await this.refineWithORBIfEnabled(chosenNorm, candidates, debug);
+    candidates = ref.candidates;
+    warpedForBest = ref.warpedForBest;
+
+    const best = candidates[0];
+    const second = candidates[1];
+    debug.best = best ? best.name : 'N/A';
+    debug.bestScore = best ? (best.total*100).toFixed(1) + '%' : 'N/A';
+    debug.second = second ? second.name : 'N/A';
+    debug.secondScore = second ? (second.total*100).toFixed(1) + '%' : 'N/A';
+    debug.margin = (best && second) ? ((best.total-second.total)*100).toFixed(1) + '%' : 'N/A';
+    debug.bestShift = best?.shift ? `dx=${best.shift.dx}, dy=${best.shift.dy}` : 'N/A';
+    debug.bestParts = best
+      ? `corner ${(best.corner*100).toFixed(1)} | full ${(best.full*100).toFixed(1)} | edge ${(best.edge*100).toFixed(1)} | hash ${(best.hash*100).toFixed(1)} | suit ${(best.suitPrior*100).toFixed(0)} | orb ${(best.orb==null?'N/A':(best.orb*100).toFixed(0))}`
+      : 'N/A';
+    debug.bestORB = best?.orbDebug || 'N/A';
+
+    // thresholds
+    if (!best) return { error:'Нет кандидатов', debug, candidates, prep:chosenPrep, warpedForBest };
+
+    if (best.total < SETTINGS.minScore) {
+      return { error:`Слабое совпадение (${(best.total*100).toFixed(1)}%)`, debug, candidates, prep:chosenPrep, warpedForBest };
+    }
+    const margin = best.total - (second?.total || 0);
+    if (margin < SETTINGS.minMargin) {
+      return { error:`Неуверенно (разрыв ${(margin*100).toFixed(1)}%)`, debug, candidates, prep:chosenPrep, warpedForBest };
+    }
+
+    return {
+      rank: best.rank,
+      suit: best.suit,
+      name: best.name,
+      confidence: Math.round(best.total*100),
+      debug,
+      candidates,
+      prep: chosenPrep,
+      chosenNorm,
+      warpedForBest
+    };
+  }
+}
+
+/* ===========================
+   App
+=========================== */
+class App {
+  constructor(){
+    this.video=document.getElementById('video');
+    this.loader=document.getElementById('loader');
+
+    this.recognizer=new CardRecognizer();
+    this.stream=null;
+    this.facingMode='environment';
+
+    this.debugMode=false;
+    this.settingsOpen=false;
+
+    this.autoMode=false;
+    this.autoTimer=null;
+    this.isRecognizing=false;
+
+    this.lastStableId=null;
+    this.stableCount=0;
+
+    // work canvases
+    this.roiCanvas=document.createElement('canvas');
+    this.roiCanvas.width=480; this.roiCanvas.height=672;
+    this.roiCtx=this.roiCanvas.getContext('2d',{willReadFrequently:true});
+
+    this.normCanvas=document.createElement('canvas');
+    this.normCanvas.width=CONFIG.norm.width; this.normCanvas.height=CONFIG.norm.height;
+    this.normCtx=this.normCanvas.getContext('2d',{willReadFrequently:true});
+
+    this.init();
+  }
+
+  showOverlayLoader(text, sub=''){
+    const loader=document.getElementById('loader');
+    loader.style.display='block';
+    document.getElementById('loaderText').textContent=text||'Загрузка...';
+    document.getElementById('loaderSubtext').textContent=sub||'';
+  }
+  hideOverlayLoader(){
+    document.getElementById('loader').style.display='none';
+  }
+
+  async init(){
+    try{
+      this.setStatus('Загрузка шаблонов...');
+      this.showOverlayLoader('Инициализация...', 'Загрузка шаблонов и запуск камеры');
+
+      const loadResult = await this.recognizer.loadTemplates();
+      if(!loadResult.success) throw new Error('Не удалось загрузить шаблоны');
+
+      this.setStatus('Запуск камеры...');
+      await this.startCamera();
+
+      this.setupControls();
+      this.setupSettingsUI(loadResult);
+
+      this.hideOverlayLoader();
+      this.setStatus('Наведите камеру на карту');
+      this.log(`✓ Шаблонов: ${loadResult.loaded}/${loadResult.total}`, 'ok');
+
+    } catch(e){
+      this.loader.innerHTML = `
+        <div style="color:#f44336; font-size:16px; font-weight:bold;">Ошибка!</div>
+        <div style="font-size:12px; margin-top:10px;">${e.message}</div>
+        <div style="font-size:10px; margin-top:10px; color:#888;">
+          Откройте через http(s). Проверьте templates/*.jpg.
+        </div>
+      `;
+      console.error(e);
+    }
+  }
+
+  async startCamera(){
+    const constraints={
+      video:{
+        width: CONFIG.video.width,
+        height: CONFIG.video.height,
+        facingMode: this.facingMode
+      },
+      audio:false
+    };
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    this.video.srcObject=this.stream;
+    await new Promise(res=>this.video.onloadedmetadata=res);
+    await this.video.play();
+  }
+
+  setupControls(){
+    document.getElementById('recognizeBtn').onclick=()=>this.recognizeOnce(false);
+
+    document.getElementById('autoBtn').onclick=()=>{
+      this.autoMode=!this.autoMode;
+      const btn=document.getElementById('autoBtn');
+      btn.classList.toggle('on',this.autoMode);
+      btn.textContent=this.autoMode?'⏸ Стоп':'🔄 Авто';
+
+      this.lastStableId=null;
+      this.stableCount=0;
+
+      if(this.autoMode){
+        this.log('Авто режим ВКЛ','ok');
+        this.autoLoop();
+      }else{
+        this.log('Авто режим ВЫКЛ');
+        if(this.autoTimer) clearTimeout(this.autoTimer);
+        this.autoTimer=null;
+      }
+    };
+
+    document.getElementById('debugBtn').onclick=()=>{
+      this.debugMode=!this.debugMode;
+      document.getElementById('debugPanel').classList.toggle('show',this.debugMode);
+      document.getElementById('debugBtn').classList.toggle('on',this.debugMode);
+    };
+
+    document.getElementById('settingsBtn').onclick=()=>{
+      this.settingsOpen=!this.settingsOpen;
+      document.getElementById('settingsPanel').classList.toggle('show',this.settingsOpen);
+      document.getElementById('settingsBtn').classList.toggle('on',this.settingsOpen);
+      if(this.settingsOpen) this.refreshSettingsUI();
+    };
+
+    document.getElementById('switchBtn').onclick=async ()=>{
+      this.facingMode = this.facingMode==='environment'?'user':'environment';
+      if(this.stream) this.stream.getTracks().forEach(t=>t.stop());
+      await this.startCamera();
+      this.log('Камера переключена','ok');
+    };
+  }
+
+  setupSettingsUI(loadResult){
+    const $=(id)=>document.getElementById(id);
+    $('ui_templatesVal').textContent = `${loadResult.loaded}/${loadResult.total}`;
+    $('ui_normVal').textContent = `${CONFIG.norm.width}×${CONFIG.norm.height}`;
+
+    $('ui_minScore').value = Math.round(SETTINGS.minScore*100);
+    $('ui_minMargin').value = Math.round(SETTINGS.minMargin*100);
+    $('ui_adaptWin').value = SETTINGS.adaptiveWindow;
+    $('ui_adaptC').value = SETTINGS.adaptiveC;
+    $('ui_maxShift').value = SETTINGS.maxShift;
+    $('ui_useCrop').checked = !!SETTINGS.useCrop;
+    $('ui_useORB').checked = !!SETTINGS.useORB;
+    $('ui_orbK').value = SETTINGS.orbTopK;
+    $('ui_stable').value = SETTINGS.autoStable;
+
+    $('ui_minScore').oninput=()=>{ SETTINGS.minScore=Number($('ui_minScore').value)/100; saveSettings(); this.refreshSettingsUI(); };
+    $('ui_minMargin').oninput=()=>{ SETTINGS.minMargin=Number($('ui_minMargin').value)/100; saveSettings(); this.refreshSettingsUI(); };
+
+    $('ui_adaptWin').onchange=()=>{
+      let v=Number($('ui_adaptWin').value);
+      if(v%2===0) v+=1;
+      v=Math.max(7,Math.min(41,v));
+      SETTINGS.adaptiveWindow=v;
+      $('ui_adaptWin').value=v;
+      saveSettings(); this.refreshSettingsUI();
+    };
+    $('ui_adaptC').oninput=()=>{ SETTINGS.adaptiveC=Number($('ui_adaptC').value); saveSettings(); this.refreshSettingsUI(); };
+    $('ui_maxShift').oninput=()=>{ SETTINGS.maxShift=Number($('ui_maxShift').value); saveSettings(); this.refreshSettingsUI(); };
+
+    $('ui_useCrop').onchange=()=>{ SETTINGS.useCrop=$('ui_useCrop').checked; saveSettings(); this.refreshSettingsUI(); };
+
+    $('ui_useORB').onchange=async ()=>{
+      const wants = $('ui_useORB').checked;
+      if(!wants){
+        SETTINGS.useORB=false;
+        saveSettings(); this.refreshSettingsUI();
+        return;
+      }
+      // Lazy OpenCV init only when enabling ORB
+      this.showOverlayLoader('Загрузка OpenCV...', 'ленивая инициализация для ORB+Homography');
+      const ok = await ensureOpenCVLazy();
+      this.hideOverlayLoader();
+      SETTINGS.useORB = ok;
+      if(!ok){
+        $('ui_useORB').checked=false;
+        this.log('OpenCV не загрузился (проверьте vendor/opencv или интернет)', 'err');
+      } else {
+        this.log('OpenCV готов: ORB включен', 'ok');
+      }
+      saveSettings(); this.refreshSettingsUI(true);
+    };
+
+    $('ui_orbK').oninput=()=>{ SETTINGS.orbTopK=Number($('ui_orbK').value); saveSettings(); this.refreshSettingsUI(); };
+    $('ui_stable').oninput=()=>{ SETTINGS.autoStable=Number($('ui_stable').value); saveSettings(); this.refreshSettingsUI(); };
+
+    $('ui_resetBtn').onclick=()=>{
+      SETTINGS=structuredClone(DEFAULT_SETTINGS);
+      saveSettings();
+      this.refreshSettingsUI(true);
+      this.log('Настройки сброшены','ok');
+    };
+    $('ui_closeBtn').onclick=()=>{
+      this.settingsOpen=false;
+      $('settingsPanel').classList.remove('show');
+      $('settingsBtn').classList.remove('on');
+    };
+
+    this.refreshSettingsUI(true);
+  }
+
+  refreshSettingsUI(forceSetInputs=false){
+    const $=(id)=>document.getElementById(id);
+    $('ui_minScoreVal').textContent = Math.round(SETTINGS.minScore*100)+'%';
+    $('ui_minMarginVal').textContent = Math.round(SETTINGS.minMargin*100)+'%';
+    $('ui_adaptWinVal').textContent = SETTINGS.adaptiveWindow;
+    $('ui_adaptCVal').textContent = SETTINGS.adaptiveC;
+    $('ui_maxShiftVal').textContent = SETTINGS.maxShift;
+    $('ui_cropVal').textContent = SETTINGS.useCrop ? 'ON' : 'OFF';
+    $('ui_orbVal').textContent = SETTINGS.useORB ? 'ON' : 'OFF';
+    $('ui_orbKVal').textContent = SETTINGS.orbTopK;
+    $('ui_stableVal').textContent = SETTINGS.autoStable + 'x';
+
+    if(forceSetInputs){
+      $('ui_minScore').value=Math.round(SETTINGS.minScore*100);
+      $('ui_minMargin').value=Math.round(SETTINGS.minMargin*100);
+      $('ui_adaptWin').value=SETTINGS.adaptiveWindow;
+      $('ui_adaptC').value=SETTINGS.adaptiveC;
+      $('ui_maxShift').value=SETTINGS.maxShift;
+      $('ui_useCrop').checked=!!SETTINGS.useCrop;
+      $('ui_useORB').checked=!!SETTINGS.useORB;
+      $('ui_orbK').value=SETTINGS.orbTopK;
+      $('ui_stable').value=SETTINGS.autoStable;
+    }
+  }
+
+  autoLoop(){
+    const tick=async ()=>{
+      if(!this.autoMode) return;
+      await this.recognizeOnce(true);
+      this.autoTimer=setTimeout(tick, 900);
+    };
+    tick();
+  }
+
+  // Map scanZone -> ROI canvas (object-fit:cover)
+  captureROIToCanvas(){
+    const zone=document.getElementById('scanZone');
+    const zr=zone.getBoundingClientRect();
+    const vr=this.video.getBoundingClientRect();
+
+    const inset=8;
+    const zoneLeft=zr.left+inset;
+    const zoneTop=zr.top+inset;
+    const zoneW=Math.max(20,zr.width-inset*2);
+    const zoneH=Math.max(20,zr.height-inset*2);
+
+    const relX=zoneLeft-vr.left;
+    const relY=zoneTop-vr.top;
+
+    const srcW=this.video.videoWidth;
+    const srcH=this.video.videoHeight;
+    const elW=vr.width;
+    const elH=vr.height;
+
+    const scale=Math.max(elW/srcW, elH/srcH);
+    const shownW=elW/scale;
+    const shownH=elH/scale;
+    const offsetX=(srcW-shownW)/2;
+    const offsetY=(srcH-shownH)/2;
+
+    const sx=offsetX+(relX/scale);
+    const sy=offsetY+(relY/scale);
+    const sw=zoneW/scale;
+    const sh=zoneH/scale;
+
+    this.roiCtx.imageSmoothingEnabled=true;
+    this.roiCtx.imageSmoothingQuality='high';
+    this.roiCtx.drawImage(this.video, sx, sy, sw, sh, 0, 0, this.roiCanvas.width, this.roiCanvas.height);
+
+    return {
+      video:`${srcW}x${srcH}`,
+      roi:`${this.roiCanvas.width}x${this.roiCanvas.height}`,
+      scale:scale.toFixed(3),
+      sx:sx.toFixed(1), sy:sy.toFixed(1), sw:sw.toFixed(1), sh:sh.toFixed(1)
+    };
+  }
+
+  getNormImageDataFromROI(){
+    this.normCtx.imageSmoothingEnabled=true;
+    this.normCtx.imageSmoothingQuality='high';
+    this.normCtx.fillStyle='#fff';
+    this.normCtx.fillRect(0,0,this.normCanvas.width,this.normCanvas.height);
+    this.normCtx.drawImage(this.roiCanvas, 0,0,this.roiCanvas.width,this.roiCanvas.height, 0,0,this.normCanvas.width,this.normCanvas.height);
+    return this.normCtx.getImageData(0,0,this.normCanvas.width,this.normCanvas.height);
+  }
+
+  renderCandidates(cands, limit=6){
+    const box=document.getElementById('debugCandidates');
+    box.innerHTML='';
+    cands.slice(0,limit).forEach((c,idx)=>{
+      const left=`${idx+1}) ${c.name}`;
+      const right=`${(c.total*100).toFixed(1)}% | c ${(c.corner*100).toFixed(1)} f ${(c.full*100).toFixed(1)} e ${(c.edge*100).toFixed(1)} h ${(c.hash*100).toFixed(1)} orb ${c.orb==null?'—':(c.orb*100).toFixed(0)}`;
+      const line=document.createElement('div');
+      line.className='cand-line';
+      line.innerHTML=`<div class="cand-left">${left}</div><div class="cand-right">${right}</div>`;
+      box.appendChild(line);
+    });
+  }
+
+  renderDebugLines(obj){
+    const labels={
+      video:'🎥 video', roi:'🟩 ROI', scale:'📐 scale', sx:'sx', sy:'sy', sw:'sw', sh:'sh',
+      std:'📊 contrast', crop:'✂ crop', redRatio:'🟥 redRatio', suitHint:'🎨 suitHint',
+      rotation:'🔁 rotation', orb:'🧩 ORB',
+      bestQuick:'⚡ quick', best:'🃏 best', bestScore:'⭐ bestScore', bestParts:'🧾 parts', bestShift:'↔ shift',
+      second:'2️⃣ second', secondScore:'2️⃣ score', margin:'📏 margin', bestORB:'🔧 orbDbg', decision:'✅ decision'
+    };
+    const order=['video','roi','scale','sx','sy','sw','sh','std','crop','redRatio','suitHint','rotation','orb','bestQuick','best','bestScore','bestParts','bestShift','bestORB','second','secondScore','margin','decision'];
+    let html='';
+    for(const k of order){
+      if(obj[k]===undefined) continue;
+      html+=`<div class="dbg-line">${labels[k]||k}: ${obj[k]}</div>`;
+    }
+    document.getElementById('debugInfo').innerHTML=html;
+  }
+
+  drawDebugCanvases(roiCanvas, normData, warpedData, cornerMask, cw, ch){
+    const drawImageData=(canvas, imageData)=>{
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if(!imageData) return;
+      const tmp=document.createElement('canvas');
+      tmp.width=imageData.width; tmp.height=imageData.height;
+      tmp.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality='high';
+      ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
+    };
+
+    const roiCtx=document.getElementById('dbgROI').getContext('2d',{willReadFrequently:true});
+    roiCtx.clearRect(0,0,200,280);
+    roiCtx.imageSmoothingEnabled=true;
+    roiCtx.imageSmoothingQuality='high';
+    roiCtx.drawImage(roiCanvas,0,0,200,280);
+
+    drawImageData(document.getElementById('dbgNorm'), normData);
+    drawImageData(document.getElementById('dbgWarp'), warpedData);
+
+    if(cornerMask && cw && ch){
+      ImgProc.drawBinaryCornerToCanvas(cornerMask, cw, ch, document.getElementById('dbgBin'));
+    } else {
+      document.getElementById('dbgBin').getContext('2d').clearRect(0,0,200,280);
+    }
+  }
+
+  async recognizeOnce(isAuto){
+    if(this.isRecognizing) return;
+    this.isRecognizing=true;
+
+    const btn=document.getElementById('recognizeBtn');
+    const zone=document.getElementById('scanZone');
+
+    try{
+      btn.textContent='⏳';
+      zone.classList.add('active');
+      this.setStatus('Анализ...');
+
+      await new Promise(r=>setTimeout(r,25));
+
+      const roiDbg=this.captureROIToCanvas();
+      const normData=this.getNormImageDataFromROI();
+
+      const result = await this.recognizer.recognize(normData);
+
+      // Debug
+      if(this.debugMode){
+        this.renderCandidates(result.candidates || [], 6);
+        this.renderDebugLines({
+          ...roiDbg,
+          ...(result.debug||{}),
+          decision: result.error ? ('ERR: ' + result.error) : 'OK'
+        });
+        this.drawDebugCanvases(
+          this.roiCanvas,
+          result.chosenNorm || normData,
+          result.warpedForBest || null,
+          result.prep?.cornerMask || null,
+          result.prep?.cornerW || 0,
+          result.prep?.cornerH || 0
+        );
+      }
+
+      btn.textContent='🎯 Распознать';
+      zone.classList.remove('active');
+
+      if(result.error){
+        zone.classList.add('error');
+        setTimeout(()=>zone.classList.remove('error'),700);
+        this.setStatus(result.error,'error');
+        this.log('✗ '+result.error,'err');
+        return;
+      }
+
+      // stability for auto
+      if(isAuto && SETTINGS.autoStable>1){
+        const bestId = result.candidates?.[0]?.id;
+        if(this.lastStableId===bestId) this.stableCount++;
+        else { this.lastStableId=bestId; this.stableCount=1; }
+
+        if(this.stableCount < SETTINGS.autoStable){
+          const msg=`Предварительно: ${result.name} (${this.stableCount}/${SETTINGS.autoStable})`;
+          this.setStatus(msg,'');
+          this.log(`… ${result.name} (стабилизация ${this.stableCount}/${SETTINGS.autoStable})`,'warn');
+          return;
+        }
+        this.lastStableId=null;
+        this.stableCount=0;
+      }
+
+      this.showResult(result);
+      this.setStatus('✅ '+result.name,'ok');
+      this.log(`✓ ${result.name} (${result.confidence}%)`,'ok');
+      if(navigator.vibrate) navigator.vibrate([40,30,40]);
+
+    } catch(e){
+      btn.textContent='🎯 Распознать';
+      zone.classList.remove('active');
+      zone.classList.add('error');
+      setTimeout(()=>zone.classList.remove('error'),700);
+      this.setStatus(e.message,'error');
+      this.log('✗ '+e.message,'err');
+      console.error(e);
+    } finally {
+      this.isRecognizing=false;
+    }
+  }
+
+  showResult(card){
+    const suitInfo=CARDS[card.suit]||{class:''};
+    document.getElementById('cardSymbol').textContent=`${card.rank}${card.suit}`;
+    document.getElementById('cardSymbol').className=suitInfo.class;
+    document.getElementById('cardTitle').textContent=card.name;
+    document.getElementById('cardConfidence').textContent=`Уверенность: ${card.confidence}%`;
+    const box=document.getElementById('resultCard');
+    box.classList.add('show');
+    setTimeout(()=>box.classList.remove('show'),2500);
+  }
+
+  setStatus(text,type=''){
+    const el=document.getElementById('statusBar');
+    el.textContent=text;
+    el.className=type;
+  }
+
+  log(text,type=''){
+    const box=document.getElementById('historyLog');
+    const line=document.createElement('div');
+    line.className='log-line'+(type?(' log-'+type):'');
+    line.textContent=new Date().toLocaleTimeString().slice(-8)+' '+text;
+    box.insertBefore(line, box.firstChild);
+    while(box.children.length>12) box.removeChild(box.lastChild);
+  }
+}
+
+window.addEventListener('load', ()=>new App());
+</script>
+</body>
+</html>
