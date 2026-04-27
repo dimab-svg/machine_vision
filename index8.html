@@ -3,503 +3,484 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Card Recognizer v7</title>
+  <title>Card Recognizer v8 — Pipeline</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
     html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background:#000; }
- 
+
     #container { position:relative; width:100vw; height:100vh; height:100dvh; }
     #video { width:100%; height:100%; object-fit:cover; }
-    #canvas { display:none; }
- 
-    #topArea{ position:absolute; top:0; left:0; right:0; padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px; z-index:10; }
-    #scanZone{
-      width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
-      box-shadow:0 0 0 9999px rgba(0,0,0,0.7);
-      flex-shrink:0; position:relative;
+
+    #topArea {
+      position:absolute; top:0; left:0; right:0;
+      padding:10px; display:flex; justify-content:center;
+      align-items:flex-start; gap:10px; z-index:10;
     }
-    #scanZone::before{
-      content:'Наведите карту сюда';
-      position:absolute; bottom:-25px; left:50%; transform:translateX(-50%);
+    #scanZone {
+      width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
+      box-shadow:0 0 0 9999px rgba(0,0,0,0.65); flex-shrink:0; position:relative;
+    }
+    #scanZone::before {
+      content:'Наведите карту'; position:absolute; bottom:-24px;
+      left:50%; transform:translateX(-50%);
       color:#4CAF50; font-size:11px; white-space:nowrap;
     }
-    #scanZone.active { border-color:#FFC107; animation: glow 0.6s infinite; }
-    #scanZone.active::before { color:#FFC107; content:'Сканирование...'; }
-    #scanZone.error { border-color:#f44336; animation: shake 0.4s; }
-    #scanZone.error::before { color:#f44336; content:'Не распознано'; }
+    #scanZone.active { border-color:#FFC107; animation:glow .6s infinite; }
+    #scanZone.active::before { color:#FFC107; content:'Анализ...'; }
+    #scanZone.error  { border-color:#f44336; animation:shake .4s; }
+    #scanZone.error::before  { color:#f44336; content:'Не распознано'; }
     @keyframes glow {
-      0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; }
-      50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; }
+      0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 14px #FFC107;}
+      50%    {box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 28px #FFC107;}
     }
-    @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 75%{transform:translateX(5px);} }
- 
+    @keyframes shake {
+      0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);}  75%{transform:translateX(5px);}
+    }
+
     #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
-    .ctrl-btn{
+    .ctrl-btn {
       width:40px; height:40px; border-radius:50%;
       background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3);
       color:white; font-size:18px; display:flex; align-items:center; justify-content:center;
-      cursor:pointer; transition:0.2s;
+      cursor:pointer; transition:.2s; user-select:none;
     }
-    .ctrl-btn:active { transform:scale(0.9); }
+    .ctrl-btn:active { transform:scale(.9); }
     .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
- 
-    #resultCard{
-      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.9);
-      background:rgba(255,255,255,0.98); border-radius:16px; padding:20px 30px;
+
+    #resultCard {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(.9);
+      background:rgba(255,255,255,0.98); border-radius:16px; padding:18px 28px;
       box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
-      opacity:0; transition:0.3s; z-index:100; pointer-events:none;
+      opacity:0; transition:.3s; z-index:30; pointer-events:none;
     }
     #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
-    #cardSymbol { font-size:72px; font-weight:bold; line-height:1; }
-    #cardTitle { font-size:16px; color:#555; margin-top:8px; font-weight:500; }
-    #cardConfidence { font-size:11px; color:#888; margin-top:4px; }
-    .red{ color:#e53935; } .black{ color:#212121; }
- 
-    #statusBar{
-      position:absolute; top:320px; left:50%; transform:translateX(-50%);
+    #cardSymbol { font-size:68px; font-weight:bold; line-height:1; }
+    #cardTitle  { font-size:15px; color:#555; margin-top:6px; font-weight:500; }
+    #cardConf   { font-size:11px; color:#888; margin-top:4px; }
+    .red  { color:#e53935; }
+    .black{ color:#212121; }
+
+    #statusBar {
+      position:absolute; top:318px; left:50%; transform:translateX(-50%);
       background:rgba(0,0,0,0.85); color:white;
-      padding:6px 14px; border-radius:12px; font-size:11px; max-width:92%;
-      text-align:center; z-index:10;
+      padding:6px 14px; border-radius:12px; font-size:11px; max-width:93%;
+      text-align:center; z-index:10; pointer-events:none;
     }
-    #statusBar.error { background: rgba(244,67,54,0.95); }
-    #statusBar.ok { background: rgba(76,175,80,0.95); }
- 
-    #bottomArea{
+    #statusBar.error { background:rgba(244,67,54,.95); }
+    #statusBar.ok    { background:rgba(76,175,80,.95); }
+
+    #bottomArea {
       position:absolute; bottom:0; left:0; right:0;
       padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
       display:flex; flex-direction:column; gap:8px; align-items:center;
-      background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
+      background:linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
       z-index:10;
     }
-    #historyLog{
-      background:rgba(0,0,0,0.7); border-radius:8px; padding:6px 10px;
-      width:100%; max-width:380px; max-height:60px; overflow-y:auto;
+    #historyLog {
+      background:rgba(0,0,0,0.7); border-radius:8px; padding:5px 9px;
+      width:100%; max-width:380px; max-height:52px; overflow-y:auto;
       font-family:monospace; font-size:9px; color:#0f0;
     }
-    .log-line{ margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .log-err{ color:#f44336; } .log-ok{ color:#4CAF50; } .log-warn{ color:#FFC107; }
- 
-    #actionButtons{ display:flex; gap:8px; width:100%; max-width:380px; }
-    .action-btn{
-      flex:1; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%);
-      color:white; border:none; padding:14px 0; border-radius:20px;
-      font-size:14px; font-weight:600; box-shadow:0 4px 15px rgba(102,126,234,0.5);
-      cursor:pointer; transition:0.2s;
+    .log-line { margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .log-err  { color:#f44336; } .log-ok { color:#4CAF50; } .log-warn { color:#FFC107; }
+
+    #actionButtons { display:flex; gap:8px; width:100%; max-width:380px; }
+    .action-btn {
+      flex:1; border:none; padding:13px 0; border-radius:18px;
+      font-size:14px; font-weight:600; cursor:pointer; transition:.2s; color:white;
     }
-    .action-btn:active { transform:scale(0.96); }
-    .action-btn.auto{
-      background:linear-gradient(135deg,#FFC107 0%, #FF9800 100%);
-      box-shadow:0 4px 15px rgba(255,193,7,0.5);
-    }
-    .action-btn.auto.on { background:linear-gradient(135deg,#4CAF50 0%, #43A047 100%); }
- 
-    #settingsPanel{
+    .action-btn:active { transform:scale(.96); }
+    #recognizeBtn { background:linear-gradient(135deg,#667eea,#764ba2); box-shadow:0 4px 14px rgba(102,126,234,.5); }
+    #autoBtn      { background:linear-gradient(135deg,#FFC107,#FF9800); box-shadow:0 4px 14px rgba(255,193,7,.5); }
+    #autoBtn.on   { background:linear-gradient(135deg,#4CAF50,#43A047); }
+
+    /* ── SETTINGS PANEL ── */
+    #settingsPanel {
       position:absolute; top:50%; right:10px; transform:translateY(-50%);
-      width:270px;
-      background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
-      z-index:20; display:none;
-      border:1px solid rgba(255,255,255,0.08);
+      width:260px; background:rgba(0,0,0,0.93); border-radius:12px; padding:10px;
+      z-index:20; display:none; border:1px solid rgba(255,255,255,0.08);
     }
-    #settingsPanel.show{ display:block; }
-    .settings-title{ color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:8px; text-align:center; }
-    .settings-item{ margin:8px 0; }
-    .settings-label{ color:#aaa; font-size:9px; display:flex; justify-content:space-between; gap:10px; margin-bottom:3px; }
-    .settings-value{ color:#0f0; font-size:9px; font-family:monospace; }
-    .settings-row{ display:flex; gap:8px; align-items:center; }
-    .settings-row input[type="range"]{ width:100%; }
-    .settings-row input[type="number"]{
-      width:74px; background:#111; border:1px solid rgba(255,255,255,0.15); color:#fff;
-      border-radius:6px; padding:4px; font-size:11px;
+    #settingsPanel.show { display:block; }
+    .sp-title  { color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:8px; text-align:center; }
+    .sp-item   { margin:7px 0; }
+    .sp-label  { color:#aaa; font-size:9px; display:flex; justify-content:space-between; margin-bottom:3px; }
+    .sp-val    { color:#0f0; font-size:9px; font-family:monospace; }
+    .sp-row    { display:flex; gap:6px; align-items:center; }
+    .sp-row input[type=range]  { width:100%; }
+    .sp-row input[type=number] {
+      width:72px; background:#111; border:1px solid rgba(255,255,255,0.15);
+      color:#fff; border-radius:6px; padding:4px; font-size:11px;
     }
-    .settings-row input[type="checkbox"]{ transform: scale(1.1); }
-    .settings-btns{ display:flex; gap:8px; margin-top:10px; }
-    .mini-btn{
+    .sp-row input[type=checkbox] { transform:scale(1.15); }
+    .sp-btns  { display:flex; gap:8px; margin-top:10px; }
+    .mini-btn {
       flex:1; background:#222; color:#fff; border:1px solid rgba(255,255,255,0.15);
       border-radius:8px; padding:8px 0; font-size:11px; cursor:pointer;
     }
-    .mini-btn:active{ transform:scale(0.98); }
- 
-    /* DEBUG PANEL — фиксированное позиционирование с прокруткой */
-    #debugPanel{
+    .mini-btn:active { transform:scale(.97); }
+
+    /* ── DEBUG PANEL ── */
+    #debugPanel {
       position:fixed; top:0; left:0; right:0; bottom:0;
-      background:rgba(0,0,0,0.96);
-      z-index:50; display:none; flex-direction:column;
-      overflow:hidden;
+      background:rgba(0,0,0,0.97); z-index:50;
+      display:none; flex-direction:column;
     }
-    #debugPanel.show{ display:flex; }
-    #debugHeader{
+    #debugPanel.show { display:flex; }
+    #dbgHeader {
       display:flex; align-items:center; justify-content:space-between;
-      padding:10px 14px; background:rgba(255,193,7,0.15);
+      padding:10px 14px; background:rgba(255,193,7,.12);
       border-bottom:1px solid rgba(255,255,255,0.1); flex-shrink:0;
     }
-    #debugHeaderTitle{ color:#FFC107; font-weight:bold; font-size:13px; font-family:monospace; }
-    #debugCloseBtn{
-      width:36px; height:36px; border-radius:50%;
-      background:#f44336; border:none; color:white;
-      font-size:20px; font-weight:bold; cursor:pointer;
+    #dbgHeaderTitle { color:#FFC107; font-weight:bold; font-size:13px; font-family:monospace; }
+    #dbgCloseBtn {
+      width:34px; height:34px; border-radius:50%; background:#c62828; border:none;
+      color:white; font-size:19px; font-weight:bold; cursor:pointer;
       display:flex; align-items:center; justify-content:center;
-      flex-shrink:0;
     }
-    #debugScroll{ flex:1; overflow-y:auto; padding:10px; }
-    #debugInfo{ font-family:monospace; font-size:10px; color:#0f0; }
-    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.07); }
-    .dbg-title{ color:#FFC107; font-weight:bold; margin-bottom:6px; }
-    .dbg-subtitle{ color:#9cf; margin:10px 0 4px; font-weight:bold; font-size:11px; }
-    .cand-line{ display:flex; justify-content:space-between; gap:6px; font-family:monospace; font-size:9px; margin:2px 0; }
-    .cand-left{ color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:0 0 130px; }
-    .cand-right{ color:#0f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .dbg-canvases{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
-    .dbg-canvases canvas{
-      width:90px; height:126px;
-      background:#111; border:1px solid rgba(255,255,255,0.12); border-radius:6px;
+    #dbgScroll { flex:1; overflow-y:auto; padding:10px 12px; }
+
+    /* Pipeline steps */
+    .pipe-step {
+      margin:8px 0; border-radius:8px; overflow:hidden;
+      border:1px solid rgba(255,255,255,0.10);
     }
-    .dbg-canvas-label{ color:#888; font-size:8px; text-align:center; margin-top:2px; font-family:monospace; }
- 
-    #loader{
+    .pipe-head {
+      display:flex; align-items:center; gap:8px;
+      padding:6px 10px; background:rgba(255,255,255,0.06);
+      font-family:monospace; font-size:11px;
+    }
+    .pipe-num  { color:#FFC107; font-weight:bold; flex-shrink:0; }
+    .pipe-name { color:#9cf; font-weight:bold; flex-shrink:0; }
+    .pipe-res  { color:#0f0; margin-left:auto; font-weight:bold; white-space:nowrap; }
+    .pipe-body { padding:6px 10px; font-family:monospace; font-size:9px; color:#aaa; }
+    .pipe-body .row { display:flex; justify-content:space-between; gap:8px; margin:2px 0; }
+    .pipe-body .row .k { color:#888; } .pipe-body .row .v { color:#fff; }
+
+    /* Candidate table */
+    .cand-table { width:100%; border-collapse:collapse; margin-top:6px; }
+    .cand-table th {
+      color:#FFC107; font-size:8px; text-align:left; padding:3px 5px;
+      border-bottom:1px solid rgba(255,255,255,0.1);
+    }
+    .cand-table td { font-size:9px; padding:3px 5px; font-family:monospace; }
+    .cand-table tr:nth-child(odd) td { background:rgba(255,255,255,0.03); }
+    .cand-table .best-row td { color:#4CAF50; font-weight:bold; }
+    .cand-table .name-col { color:#fff; }
+    .cand-table .score-col { color:#0f0; }
+    .bar-bg { background:rgba(255,255,255,0.1); border-radius:3px; height:8px; min-width:60px; }
+    .bar-fg { background:#4CAF50; border-radius:3px; height:8px; }
+    .bar-fg.red { background:#e53935; }
+
+    /* Debug canvases */
+    .dbg-canvas-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .dbg-canvas-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; }
+    .dbg-canvas-wrap canvas {
+      background:#111; border:1px solid rgba(255,255,255,.12); border-radius:6px;
+    }
+    .dbg-canvas-label { color:#888; font-size:8px; font-family:monospace; }
+
+    /* ── LOADER ── */
+    #loader {
       position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-      text-align:center; color:white; background:rgba(0,0,0,0.95);
-      padding:30px; border-radius:16px; z-index:999; min-width:240px;
-      display:block;
+      text-align:center; color:white; background:rgba(0,0,0,0.96);
+      padding:28px; border-radius:16px; z-index:999; min-width:230px;
     }
-    .spin{
-      border:4px solid rgba(255,255,255,0.3); border-top:4px solid #667eea;
-      border-radius:50%; width:40px; height:40px; animation: rotate 1s linear infinite;
-      margin:0 auto 15px;
+    .spin {
+      border:4px solid rgba(255,255,255,.3); border-top:4px solid #667eea;
+      border-radius:50%; width:40px; height:40px;
+      animation:rotate 1s linear infinite; margin:0 auto 14px;
     }
     @keyframes rotate { to { transform:rotate(360deg); } }
-    #loaderText{ font-size:13px; margin-bottom:8px; }
-    #loaderSubtext{ font-size:10px; color:#888; }
+    #loaderText    { font-size:13px; margin-bottom:6px; }
+    #loaderSubtext { font-size:10px; color:#888; }
   </style>
 </head>
 <body>
 <div id="container">
   <video id="video" autoplay playsinline muted></video>
-  <canvas id="canvas"></canvas>
- 
+
   <div id="topArea">
     <div id="scanZone"></div>
     <div id="ctrlButtons">
-      <div class="ctrl-btn" id="debugBtn" title="Отладка">🐛</div>
+      <div class="ctrl-btn" id="debugBtn"    title="Отладка (последний результат)">🔬</div>
       <div class="ctrl-btn" id="settingsBtn" title="Настройки">⚙️</div>
-      <div class="ctrl-btn" id="switchBtn" title="Камера">📷</div>
+      <div class="ctrl-btn" id="switchBtn"   title="Камера">📷</div>
     </div>
   </div>
- 
+
   <div id="resultCard">
     <div id="cardSymbol">?</div>
     <div id="cardTitle">Ожидание...</div>
-    <div id="cardConfidence"></div>
+    <div id="cardConf"></div>
   </div>
- 
+
   <div id="statusBar">Наведите камеру на карту</div>
- 
+
   <div id="bottomArea">
     <div id="historyLog"></div>
     <div id="actionButtons">
       <button class="action-btn" id="recognizeBtn">🎯 Распознать</button>
-      <button class="action-btn auto" id="autoBtn">🔄 Авто</button>
+      <button class="action-btn" id="autoBtn">🔄 Авто</button>
     </div>
   </div>
- 
+
+  <!-- SETTINGS -->
   <div id="settingsPanel">
-    <div class="settings-title">⚙️ НАСТРОЙКИ</div>
- 
-    <div class="settings-item">
-      <div class="settings-label"><span>Порог (minScore)</span><span class="settings-value" id="ui_minScoreVal"></span></div>
-      <div class="settings-row"><input id="ui_minScore" type="range" min="50" max="95" step="1"></div>
+    <div class="sp-title">⚙️ НАСТРОЙКИ</div>
+    <div class="sp-item">
+      <div class="sp-label"><span>Порог (minScore)</span><span class="sp-val" id="ui_minScoreVal"></span></div>
+      <div class="sp-row"><input id="ui_minScore" type="range" min="55" max="95" step="1"></div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Разрыв (minMargin)</span><span class="settings-value" id="ui_minMarginVal"></span></div>
-      <div class="settings-row"><input id="ui_minMargin" type="range" min="0" max="15" step="1"></div>
+    <div class="sp-item">
+      <div class="sp-label"><span>Разрыв (minMargin)</span><span class="sp-val" id="ui_minMarginVal"></span></div>
+      <div class="sp-row"><input id="ui_minMargin" type="range" min="0" max="15" step="1"></div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Adaptive window</span><span class="settings-value" id="ui_adaptWinVal"></span></div>
-      <div class="settings-row">
+    <div class="sp-item">
+      <div class="sp-label"><span>Adaptive window</span><span class="sp-val" id="ui_adaptWinVal"></span></div>
+      <div class="sp-row">
         <input id="ui_adaptWin" type="number" min="7" max="41" step="2">
-        <span style="color:#888;font-size:10px;">(нечёт.)</span>
+        <span style="color:#666;font-size:9px;">нечёт.</span>
       </div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Adaptive C</span><span class="settings-value" id="ui_adaptCVal"></span></div>
-      <div class="settings-row"><input id="ui_adaptC" type="range" min="0" max="20" step="1"></div>
+    <div class="sp-item">
+      <div class="sp-label"><span>Adaptive C</span><span class="sp-val" id="ui_adaptCVal"></span></div>
+      <div class="sp-row"><input id="ui_adaptC" type="range" min="0" max="20" step="1"></div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Сдвиг (maxShift)</span><span class="settings-value" id="ui_maxShiftVal"></span></div>
-      <div class="settings-row"><input id="ui_maxShift" type="range" min="0" max="6" step="1"></div>
+    <div class="sp-item">
+      <div class="sp-label"><span>Диапазон углов</span><span class="sp-val" id="ui_anglesVal"></span></div>
+      <div class="sp-row"><input id="ui_angles" type="range" min="1" max="3" step="1"></div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Нормализация угла</span><span class="settings-value" id="ui_cornerNormVal"></span></div>
-      <div class="settings-row">
-        <input id="ui_cornerNorm" type="checkbox">
-        <span style="color:#888;font-size:10px;">автокроп "чернил"</span>
+    <div class="sp-item">
+      <div class="sp-label"><span>Нормализация угла</span><span class="sp-val" id="ui_cnormVal"></span></div>
+      <div class="sp-row">
+        <input id="ui_cnorm" type="checkbox">
+        <span style="color:#666;font-size:9px;">автокроп "чернил"</span>
       </div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Sobel-рёбра</span><span class="settings-value" id="ui_sobelVal"></span></div>
-      <div class="settings-row">
-        <input id="ui_useSobel" type="checkbox">
-        <span style="color:#888;font-size:10px;">устойчив к яркости</span>
-      </div>
+    <div class="sp-item">
+      <div class="sp-label"><span>Стабильность (авто)</span><span class="sp-val" id="ui_stableVal"></span></div>
+      <div class="sp-row"><input id="ui_stable" type="range" min="1" max="3" step="1"></div>
     </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Углы поворота</span><span class="settings-value" id="ui_anglesVal"></span></div>
-      <div class="settings-row"><input id="ui_angles" type="range" min="1" max="3" step="1"></div>
-    </div>
-    <div class="settings-item">
-      <div class="settings-label"><span>Стабильность (авто)</span><span class="settings-value" id="ui_stableVal"></span></div>
-      <div class="settings-row"><input id="ui_stable" type="range" min="1" max="3" step="1"></div>
-    </div>
-    <div class="settings-btns">
+    <div class="sp-btns">
       <button class="mini-btn" id="ui_resetBtn">Сброс</button>
       <button class="mini-btn" id="ui_closeBtn">Закрыть</button>
     </div>
   </div>
- 
-  <!-- DEBUG PANEL — полноэкранное overlay -->
+
+  <!-- DEBUG PANEL -->
   <div id="debugPanel">
-    <div id="debugHeader">
-      <div id="debugHeaderTitle">🔬 DEBUG MODE</div>
-      <button id="debugCloseBtn" title="Закрыть отладку">✕</button>
+    <div id="dbgHeader">
+      <div id="dbgHeaderTitle">🔬 ОТЛАДКА (последнее распознавание)</div>
+      <button id="dbgCloseBtn">✕</button>
     </div>
-    <div id="debugScroll">
-      <div id="debugInfo"></div>
-      <div class="dbg-subtitle">Top кандидаты</div>
-      <div id="debugCandidates"></div>
-      <div class="dbg-subtitle">Кадры (ROI / Norm / Угол-бинар / Sobel)</div>
-      <div class="dbg-canvases">
-        <div>
-          <canvas id="dbgROI" width="200" height="280"></canvas>
-          <div class="dbg-canvas-label">ROI</div>
-        </div>
-        <div>
-          <canvas id="dbgNorm" width="200" height="280"></canvas>
-          <div class="dbg-canvas-label">Norm</div>
-        </div>
-        <div>
-          <canvas id="dbgBin" width="200" height="280"></canvas>
-          <div class="dbg-canvas-label">Corner bin</div>
-        </div>
-        <div>
-          <canvas id="dbgSobel" width="200" height="280"></canvas>
-          <div class="dbg-canvas-label">Sobel</div>
-        </div>
+    <div id="dbgScroll">
+      <div id="dbgNoData" style="color:#666;font-family:monospace;font-size:11px;padding:10px;">
+        Ещё нет данных — сначала нажмите «Распознать»
       </div>
+      <div id="dbgContent" style="display:none"></div>
     </div>
   </div>
- 
+
   <div id="loader">
     <div class="spin"></div>
     <div id="loaderText">Инициализация...</div>
     <div id="loaderSubtext">Загрузка шаблонов и запуск камеры</div>
   </div>
 </div>
- 
+
 <script>
-/* ===== CONFIG ===== */
+/* ═══════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════ */
 const CONFIG = {
-  norm: { width: 200, height: 280 },
-  small: { width: 96, height: 134 },
-  sobelSmall: { width: 64, height: 90 },
-  corner: { wRatio: 0.35, hRatio: 0.35 },
+  norm:    { width:200, height:280 },
+  small:   { width:80,  height:112 },
+  corner:  { wRatio:0.32, hRatio:0.32 },
   templatesDir: 'templates',
   templates: [
-    { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей' },
-    { id:'8p',  file:'8p.jpg',  rank:'8',  suit:'♠', name:'8 Пик' },
-    { id:'9tr', file:'9tr.jpg', rank:'9',  suit:'♣', name:'9 Треф' },
-    { id:'10b', file:'10b.jpg', rank:'10', suit:'♦', name:'10 Бубен' },
-    { id:'dh',  file:'dh.jpg',  rank:'Q',  suit:'♥', name:'Дама Червей' },
-    { id:'kp',  file:'kp.jpg',  rank:'K',  suit:'♠', name:'Король Пик' },
-    { id:'tb',  file:'tb.jpg',  rank:'A',  suit:'♦', name:'Туз Бубен' },
-    { id:'vtr', file:'vtr.jpg', rank:'J',  suit:'♣', name:'Валет Треф' }
+    { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей',    color:'red'   },
+    { id:'8p',  file:'8p.jpg',  rank:'8',  suit:'♠', name:'8 Пик',       color:'black' },
+    { id:'9tr', file:'9tr.jpg', rank:'9',  suit:'♣', name:'9 Треф',      color:'black' },
+    { id:'10b', file:'10b.jpg', rank:'10', suit:'♦', name:'10 Бубен',    color:'red'   },
+    { id:'dh',  file:'dh.jpg',  rank:'Q',  suit:'♥', name:'Дама Червей', color:'red'   },
+    { id:'kp',  file:'kp.jpg',  rank:'K',  suit:'♠', name:'Король Пик',  color:'black' },
+    { id:'tb',  file:'tb.jpg',  rank:'A',  suit:'♦', name:'Туз Бубен',   color:'red'   },
+    { id:'vtr', file:'vtr.jpg', rank:'J',  suit:'♣', name:'Валет Треф',  color:'black' }
   ],
-  video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
+  // Множитель масштаба захвата: <1 = зум внутрь (карта кажется дальше), >1 = зум наружу
+  captureScales: [1.0, 0.78, 1.22],
+  // Три пресета углов поворота
+  angleSets: [
+    [0],
+    [-15, -7, 0, 7, 15],
+    [-30, -20, -10, 0, 10, 20, 30]
+  ],
+  weights: { corner:0.60, full:0.35, suit:0.05 },
+  video: { width:{ ideal:1920 }, height:{ ideal:1080 } }
 };
- 
-const CARDS = {
-  '♥': { class:'red',  color:'red' },
-  '♦': { class:'red',  color:'red' },
-  '♠': { class:'black',color:'black' },
-  '♣': { class:'black',color:'black' }
-};
- 
-/* Наборы угловых вариантов */
-const ANGLE_SETS = [
-  [0],                        // 1 — только прямо
-  [-12, 0, 12],               // 2 — небольшие наклоны
-  [-20, -10, 0, 10, 20]       // 3 — широкий диапазон
-];
- 
-/* ===== SETTINGS ===== */
-const DEFAULT_SETTINGS = {
-  minScore: 0.78,
-  minMargin: 0.03,
-  adaptiveWindow: 15,
-  adaptiveC: 7,
-  blur3x3: true,
-  maxShift: 2,
-  minStd: 10,
- 
+
+const SUIT_CLASS = { '♥':'red', '♦':'red', '♠':'black', '♣':'black' };
+
+/* ═══════════════════════════════════════════════
+   SETTINGS
+═══════════════════════════════════════════════ */
+const DEFAULTS = {
+  minScore: 0.76, minMargin: 0.03,
+  adaptiveWindow: 15, adaptiveC: 7, blur3x3: true,
+  maxShift: 2, minStd: 10,
   cornerNormalize: true,
-  anglesPreset: 2,           // индекс в ANGLE_SETS
- 
-  wCorner: 0.50,
-  wFull: 0.28,
-  wSobel: 0.17,
-  wSuit: 0.05,
- 
-  useSobel: true,
- 
+  anglesPreset: 2,     // 1..3
   autoStable: 2
 };
- 
-const SETTINGS_KEY = 'cardrec_v7_settings';
-let SETTINGS = loadSettings();
-function loadSettings(){
-  try{
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if(!raw) return structuredClone(DEFAULT_SETTINGS);
-    return { ...structuredClone(DEFAULT_SETTINGS), ...JSON.parse(raw) };
-  } catch { return structuredClone(DEFAULT_SETTINGS); }
-}
-function saveSettings(){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); }
-function getAngles(){ return ANGLE_SETS[Math.max(0,Math.min(ANGLE_SETS.length-1,(SETTINGS.anglesPreset||2)-1))]; }
- 
-/* ===== ImgProc ===== */
-class ImgProc {
- 
-  static toGray(imageData){
-    const {data,width,height}=imageData;
-    const gray=new Uint8ClampedArray(width*height);
-    for(let i=0,p=0;i<data.length;i+=4,p++)
-      gray[p]=(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2])|0;
-    return {gray,width,height};
-  }
- 
-  static stdDev(gray){
+const SK = 'crv8_settings';
+let S = (() => {
+  try { return { ...structuredClone(DEFAULTS), ...JSON.parse(localStorage.getItem(SK)||'{}') }; }
+  catch { return structuredClone(DEFAULTS); }
+})();
+const saveS = () => localStorage.setItem(SK, JSON.stringify(S));
+const getAngles = () => CONFIG.angleSets[Math.max(0, Math.min(2, (S.anglesPreset||2)-1))];
+
+/* ═══════════════════════════════════════════════
+   IMAGE PROCESSING
+═══════════════════════════════════════════════ */
+const ImgProc = {
+  toGray(imageData) {
+    const { data, width:w, height:h } = imageData;
+    const g = new Uint8ClampedArray(w*h);
+    for (let i=0,p=0; i<data.length; i+=4,p++)
+      g[p] = (0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2])|0;
+    return { gray:g, width:w, height:h };
+  },
+
+  stdDev(gray) {
     const n=gray.length; let s=0,s2=0;
-    for(let i=0;i<n;i++){const v=gray[i];s+=v;s2+=v*v;}
+    for (let i=0; i<n; i++) { s+=gray[i]; s2+=gray[i]*gray[i]; }
     const m=s/n; return Math.sqrt(Math.max(0,(s2/n)-m*m));
-  }
- 
-  static blur3x3(gray,w,h){
-    const out=new Uint8ClampedArray(gray.length);
-    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+  },
+
+  blur3x3(gray,w,h) {
+    const out=new Uint8ClampedArray(w*h);
+    for (let y=0; y<h; y++) for (let x=0; x<w; x++) {
       let sum=0,c=0;
-      for(let dy=-1;dy<=1;dy++){
-        const yy=y+dy; if(yy<0||yy>=h) continue;
-        for(let dx=-1;dx<=1;dx++){
-          const xx=x+dx; if(xx<0||xx>=w) continue;
-          sum+=gray[yy*w+xx]; c++;
-        }
+      for (let dy=-1; dy<=1; dy++) for (let dx=-1; dx<=1; dx++) {
+        const yy=y+dy, xx=x+dx;
+        if (yy>=0&&yy<h&&xx>=0&&xx<w) { sum+=gray[yy*w+xx]; c++; }
       }
       out[y*w+x]=(sum/c)|0;
     }
     return out;
-  }
- 
-  /* Sobel magnitude → нормированный [0,255] */
-  static sobel(gray,w,h){
-    const Gx=new Int16Array(w*h), Gy=new Int16Array(w*h);
-    for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
-      const tl=gray[(y-1)*w+(x-1)], tc=gray[(y-1)*w+x], tr=gray[(y-1)*w+(x+1)];
-      const ml=gray[y*w+(x-1)],                          mr=gray[y*w+(x+1)];
-      const bl=gray[(y+1)*w+(x-1)], bc=gray[(y+1)*w+x], br=gray[(y+1)*w+(x+1)];
-      Gx[y*w+x]=-tl-2*ml-bl+tr+2*mr+br;
-      Gy[y*w+x]=-tl-2*tc-tr+bl+2*bc+br;
-    }
-    // find max magnitude
-    let maxMag=1;
-    const mag=new Float32Array(w*h);
-    for(let i=0;i<w*h;i++){
-      const m=Math.sqrt(Gx[i]*Gx[i]+Gy[i]*Gy[i]);
-      mag[i]=m; if(m>maxMag) maxMag=m;
-    }
-    // normalize to 0-255
-    const out=new Uint8ClampedArray(w*h);
-    const scale=255/maxMag;
-    for(let i=0;i<w*h;i++) out[i]=(mag[i]*scale)|0;
-    return out;
-  }
- 
-  static adaptiveThreshold(gray,w,h,winSize=15,C=7){
-    const half=(winSize/2)|0;
-    const iw=w+1;
-    const integral=new Uint32Array(iw*(h+1));
-    for(let y=1;y<=h;y++){
-      let rowSum=0;
-      for(let x=1;x<=w;x++){
-        rowSum+=gray[(y-1)*w+(x-1)];
-        integral[y*iw+x]=integral[(y-1)*iw+x]+rowSum;
-      }
+  },
+
+  adaptiveThreshold(gray,w,h,winSize=15,C=7) {
+    const half=(winSize/2)|0, iw=w+1;
+    const itg = new Uint32Array(iw*(h+1));
+    for (let y=1; y<=h; y++) {
+      let rs=0;
+      for (let x=1; x<=w; x++) { rs+=gray[(y-1)*w+(x-1)]; itg[y*iw+x]=itg[(y-1)*iw+x]+rs; }
     }
     const mask=new Uint8Array(w*h);
-    for(let y=0;y<h;y++){
+    for (let y=0; y<h; y++) {
       const y1=Math.max(0,y-half), y2=Math.min(h-1,y+half);
-      for(let x=0;x<w;x++){
+      for (let x=0; x<w; x++) {
         const x1=Math.max(0,x-half), x2=Math.min(w-1,x+half);
         const area=(x2-x1+1)*(y2-y1+1);
-        const mean=(integral[(y2+1)*iw+(x2+1)]-integral[(y2+1)*iw+x1]-integral[y1*iw+(x2+1)]+integral[y1*iw+x1])/area;
+        const mean=(itg[(y2+1)*iw+(x2+1)]-itg[(y2+1)*iw+x1]-itg[y1*iw+(x2+1)]+itg[y1*iw+x1])/area;
         mask[y*w+x]=(gray[y*w+x]<(mean-C))?1:0;
       }
     }
     return mask;
-  }
- 
-  static extractCorner(normData, which='tl'){
+  },
+
+  matchBinary(mA,mB,w,h,maxShift=2) {
+    let best=-1;
+    for (let dy=-maxShift; dy<=maxShift; dy++)
+      for (let dx=-maxShift; dx<=maxShift; dx++) {
+        let xor=0, total=0;
+        for (let y=0; y<h; y++) {
+          const yy=y+dy; if(yy<0||yy>=h) continue;
+          for (let x=0; x<w; x++) {
+            const xx=x+dx; if(xx<0||xx>=w) continue;
+            xor+=(mA[y*w+x]^mB[yy*w+xx]); total++;
+          }
+        }
+        if(total) { const s=1-(xor/total); if(s>best) best=s; }
+      }
+    return best;
+  },
+
+  arrayStats(a) {
+    const n=a.length; let s=0,s2=0;
+    for (let i=0;i<n;i++){s+=a[i];s2+=a[i]*a[i];}
+    const m=s/n, v=Math.max(1e-9,(s2/n)-m*m);
+    return {n,mean:m,std:Math.sqrt(v)};
+  },
+
+  ncc01(a,aS,b,bS) {
+    let sum=0;
+    for (let i=0;i<aS.n;i++) sum+=a[i]*b[i];
+    const numer=sum-aS.n*aS.mean*bS.mean;
+    const denom=(aS.n*aS.std*bS.std)||1e-9;
+    return Math.max(0,Math.min(1,(numer/denom+1)/2));
+  },
+
+  downsampleToGray(imageData,nw,nh) {
+    const src=document.createElement('canvas');
+    src.width=imageData.width; src.height=imageData.height;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+    const c=document.createElement('canvas'); c.width=nw; c.height=nh;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src,0,0,imageData.width,imageData.height,0,0,nw,nh);
+    return ImgProc.toGray(ctx.getImageData(0,0,nw,nh)).gray;
+  },
+
+  extractCorner(normData, which='tl') {
     const w=normData.width, h=normData.height;
     const cw=Math.max(1,Math.floor(w*CONFIG.corner.wRatio));
     const ch=Math.max(1,Math.floor(h*CONFIG.corner.hRatio));
- 
     const src=document.createElement('canvas');
     src.width=w; src.height=h;
     src.getContext('2d',{willReadFrequently:true}).putImageData(normData,0,0);
- 
     const c=document.createElement('canvas'); c.width=cw; c.height=ch;
     const ctx=c.getContext('2d',{willReadFrequently:true});
     ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
- 
-    if(which==='tl'){
+    if (which==='tl') {
       ctx.drawImage(src,0,0,cw,ch,0,0,cw,ch);
     } else {
-      // BR — rotated 180 → same orientation as TL
       ctx.save();
       ctx.translate(cw/2,ch/2); ctx.rotate(Math.PI); ctx.translate(-cw/2,-ch/2);
       ctx.drawImage(src,w-cw,h-ch,cw,ch,0,0,cw,ch);
       ctx.restore();
     }
     return ctx.getImageData(0,0,cw,ch);
-  }
- 
-  static normalizeCorner(cornerImageData, inkThr=235, pad=3){
-    const {gray,width:w,height:h}=ImgProc.toGray(cornerImageData);
-    let minX=w, minY=h, maxX=-1, maxY=-1;
-    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
-      if(gray[y*w+x]<inkThr){
-        if(x<minX)minX=x; if(y<minY)minY=y;
-        if(x>maxX)maxX=x; if(y>maxY)maxY=y;
-      }
+  },
+
+  normalizeCorner(cornerData, thr=235, pad=3) {
+    const {gray,width:w,height:h}=ImgProc.toGray(cornerData);
+    let x0=w,y0=h,x1=-1,y1=-1;
+    for (let y=0;y<h;y++) for (let x=0;x<w;x++) {
+      if(gray[y*w+x]<thr){ if(x<x0)x0=x; if(y<y0)y0=y; if(x>x1)x1=x; if(y>y1)y1=y; }
     }
-    if(maxX<0) return {imageData:cornerImageData,debug:'no-ink'};
-    minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
-    maxX=Math.min(w-1,maxX+pad); maxY=Math.min(h-1,maxY+pad);
-    const cw=maxX-minX+1, ch=maxY-minY+1;
-    if(cw<8||ch<8) return {imageData:cornerImageData,debug:'bbox-small'};
- 
+    if(x1<0) return {imageData:cornerData,dbg:'no-ink'};
+    x0=Math.max(0,x0-pad); y0=Math.max(0,y0-pad);
+    x1=Math.min(w-1,x1+pad); y1=Math.min(h-1,y1+pad);
+    const bw=x1-x0+1, bh=y1-y0+1;
+    if(bw<8||bh<8) return {imageData:cornerData,dbg:'small'};
     const src=document.createElement('canvas');
     src.width=w; src.height=h;
-    src.getContext('2d',{willReadFrequently:true}).putImageData(cornerImageData,0,0);
+    src.getContext('2d',{willReadFrequently:true}).putImageData(cornerData,0,0);
     const dst=document.createElement('canvas'); dst.width=w; dst.height=h;
     const ctx=dst.getContext('2d',{willReadFrequently:true});
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
     ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-    ctx.drawImage(src,minX,minY,cw,ch,0,0,w,h);
-    return {imageData:ctx.getImageData(0,0,w,h),debug:`${minX},${minY} ${cw}x${ch}`};
-  }
- 
-  static rotateImageData(imageData, degrees){
-    if(degrees===0) return imageData;
-    const rad=degrees*Math.PI/180;
+    ctx.drawImage(src,x0,y0,bw,bh,0,0,w,h);
+    return {imageData:ctx.getImageData(0,0,w,h),dbg:`${x0},${y0} ${bw}×${bh}`};
+  },
+
+  rotateImageData(imageData, deg) {
+    if(!deg) return imageData;
+    const rad=deg*Math.PI/180;
     const w=imageData.width, h=imageData.height;
     const src=document.createElement('canvas'); src.width=w; src.height=h;
     src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
@@ -511,87 +492,57 @@ class ImgProc {
     ctx.drawImage(src,0,0);
     ctx.setTransform(1,0,0,1,0,0);
     return ctx.getImageData(0,0,w,h);
-  }
- 
-  static matchBinary(maskA,maskB,w,h,maxShift=2){
-    let best=-1;
-    for(let dy=-maxShift;dy<=maxShift;dy++) for(let dx=-maxShift;dx<=maxShift;dx++){
-      let xor=0,total=0;
-      for(let y=0;y<h;y++){
-        const yy=y+dy; if(yy<0||yy>=h) continue;
-        const rowA=y*w, rowB=yy*w;
-        for(let x=0;x<w;x++){
-          const xx=x+dx; if(xx<0||xx>=w) continue;
-          xor+=(maskA[rowA+x]^maskB[rowB+xx]); total++;
-        }
-      }
-      if(!total) continue;
-      const s=1-(xor/total);
-      if(s>best) best=s;
-    }
-    return best;
-  }
- 
-  static arrayStats(a){
-    const n=a.length; let s=0,s2=0;
-    for(let i=0;i<n;i++){const v=a[i];s+=v;s2+=v*v;}
-    const m=s/n, v=Math.max(1e-9,(s2/n)-m*m);
-    return {n,mean:m,std:Math.sqrt(v)};
-  }
- 
-  static ncc01(a,aS,b,bS){
-    const n=aS.n; let sum=0;
-    for(let i=0;i<n;i++) sum+=a[i]*b[i];
-    const numer=sum-n*aS.mean*bS.mean;
-    const denom=(n*aS.std*bS.std)||1e-9;
-    return Math.max(0,Math.min(1,(numer/denom+1)/2));
-  }
- 
-  /* NCC между Sobel-картами (обе уже серые 0-255) */
-  static nccSobel(a,b,n){
-    let sA=0,sB=0,sA2=0,sB2=0,sAB=0;
-    for(let i=0;i<n;i++){sA+=a[i];sB+=b[i];sA2+=a[i]*a[i];sB2+=b[i]*b[i];sAB+=a[i]*b[i];}
-    const mA=sA/n, mB=sB/n;
-    const stdA=Math.sqrt(Math.max(0,(sA2/n)-mA*mA));
-    const stdB=Math.sqrt(Math.max(0,(sB2/n)-mB*mB));
-    const numer=sAB-n*mA*mB;
-    const denom=(n*stdA*stdB)||1e-9;
-    return Math.max(0,Math.min(1,(numer/denom+1)/2));
-  }
- 
-  static downsampleToGray(imageData,newW,newH){
-    const src=document.createElement('canvas');
-    src.width=imageData.width; src.height=imageData.height;
-    src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
-    const c=document.createElement('canvas'); c.width=newW; c.height=newH;
-    const ctx=c.getContext('2d',{willReadFrequently:true});
-    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-    ctx.drawImage(src,0,0,imageData.width,imageData.height,0,0,newW,newH);
-    return ImgProc.toGray(ctx.getImageData(0,0,newW,newH)).gray;
-  }
- 
-  /* Цвет масти — проверяем TL И BR, берём максимум */
-  static redRatioDual(normData){
-    const check=(corner)=>{
-      const d=corner.data; let red=0,total=0;
-      for(let i=0;i<d.length;i+=4){
-        const r=d[i],g=d[i+1],b=d[i+2];
-        const br=(r+g+b)/3;
-        if(br<40||br>245) continue;
-        if(r>g+18&&r>b+18) red++;
+  },
+
+  /* Определяем цвет масти ТОЛЬКО по углам карты (TL и BR).
+     Для картинок (Валет/Дама/Король) тело не того цвета → игнорируем */
+  detectColor(normData) {
+    const checkCorner = (imageData) => {
+      const d=imageData.data; let red=0, total=0;
+      for (let i=0; i<d.length; i+=4) {
+        const r=d[i],g=d[i+1],b=d[i+2], br=(r+g+b)/3;
+        if (br<40||br>245) continue;
+        if (r>g+20&&r>b+20) red++;
         total++;
       }
-      return total?(red/total):0;
+      return total ? (red/total) : 0;
     };
-    const rTL=check(ImgProc.extractCorner(normData,'tl'));
-    const rBR=check(ImgProc.extractCorner(normData,'br'));
-    return Math.max(rTL,rBR);
-  }
- 
-  static drawBinaryCornerToCanvas(mask,w,h,canvas){
+    const tlRatio = checkCorner(ImgProc.extractCorner(normData,'tl'));
+    const brRatio = checkCorner(ImgProc.extractCorner(normData,'br'));
+    // Берём максимум (хоть один угол должен быть виден)
+    const ratio = Math.max(tlRatio, brRatio);
+    const color  = ratio > 0.07 ? 'red' : 'black';
+    return { color, ratio, tlRatio, brRatio };
+  },
+
+  buildCornerMasks(normData) {
+    const angles=getAngles();
+    const tl=ImgProc.extractCorner(normData,'tl');
+    const br=ImgProc.extractCorner(normData,'br');
+    const tlN=S.cornerNormalize?ImgProc.normalizeCorner(tl).imageData:tl;
+    const brN=S.cornerNormalize?ImgProc.normalizeCorner(br).imageData:br;
+
+    const makeMask=(cd,a)=>{
+      const rot=ImgProc.rotateImageData(cd,a);
+      let {gray,width:w,height:h}=ImgProc.toGray(rot);
+      if(S.blur3x3) gray=ImgProc.blur3x3(gray,w,h);
+      return {mask:ImgProc.adaptiveThreshold(gray,w,h,S.adaptiveWindow,S.adaptiveC),w,h};
+    };
+
+    const tlMasks={}, brMasks={};
+    let cw=0,ch=0;
+    for (const a of angles) {
+      const m1=makeMask(tlN,a), m2=makeMask(brN,a);
+      tlMasks[a]=m1.mask; brMasks[a]=m2.mask;
+      cw=m1.w; ch=m1.h;
+    }
+    return {tlMasks, brMasks, cw, ch};
+  },
+
+  binaryToCanvas(mask,w,h,canvas) {
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
     const img=ctx.createImageData(w,h); const d=img.data;
-    for(let i=0,p=0;i<d.length;i+=4,p++){
+    for (let i=0,p=0;i<d.length;i+=4,p++) {
       const v=mask[p]?0:255; d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
     }
     const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
@@ -599,354 +550,259 @@ class ImgProc {
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.imageSmoothingEnabled=false;
     ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
-  }
- 
-  static drawGrayToCanvas(gray,w,h,canvas){
+  },
+
+  imageDataToCanvas(imageData, canvas) {
     const ctx=canvas.getContext('2d',{willReadFrequently:true});
-    const img=ctx.createImageData(w,h); const d=img.data;
-    for(let i=0,p=0;i<d.length;i+=4,p++){
-      d[i]=d[i+1]=d[i+2]=gray[p]; d[i+3]=255;
-    }
-    const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
-    tmp.getContext('2d',{willReadFrequently:true}).putImageData(img,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.imageSmoothingEnabled=false;
+    if(!imageData) return;
+    const tmp=document.createElement('canvas');
+    tmp.width=imageData.width; tmp.height=imageData.height;
+    tmp.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
     ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
   }
-}
- 
-/* ===== TemplateLoader ===== */
-class TemplateLoader {
- 
-  static async loadImage(url){
-    return new Promise((resolve,reject)=>{
+};
+
+/* ═══════════════════════════════════════════════
+   TEMPLATE LOADER
+═══════════════════════════════════════════════ */
+const TemplateLoader = {
+  async loadImage(url) {
+    return new Promise((res,rej)=>{
       const img=new Image();
-      img.onload=()=>resolve(img);
-      img.onerror=()=>reject(new Error('Не удалось загрузить: '+url));
+      img.onload=()=>res(img);
+      img.onerror=()=>rej(new Error('Не загрузилось: '+url));
       img.src=url;
     });
-  }
- 
-  static drawToNormCanvas(img){
+  },
+
+  drawToNorm(img) {
     const c=document.createElement('canvas');
     c.width=CONFIG.norm.width; c.height=CONFIG.norm.height;
     const ctx=c.getContext('2d',{willReadFrequently:true});
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
-    const scale=Math.min(c.width/img.naturalWidth,c.height/img.naturalHeight);
-    const dw=img.naturalWidth*scale, dh=img.naturalHeight*scale;
+    const sc=Math.min(c.width/img.naturalWidth,c.height/img.naturalHeight);
+    const dw=img.naturalWidth*sc, dh=img.naturalHeight*sc;
     ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
     ctx.drawImage(img,(c.width-dw)/2,(c.height-dh)/2,dw,dh);
     return c;
-  }
- 
-  static buildCornerData(normData){
-    const angles=getAngles();
-    const tl=ImgProc.extractCorner(normData,'tl');
-    const br=ImgProc.extractCorner(normData,'br');
- 
-    const tlN=SETTINGS.cornerNormalize?ImgProc.normalizeCorner(tl).imageData:tl;
-    const brN=SETTINGS.cornerNormalize?ImgProc.normalizeCorner(br).imageData:br;
- 
-    const buildMask=(cornerImageData,angleDeg)=>{
-      const imgRot=ImgProc.rotateImageData(cornerImageData,angleDeg);
-      let {gray,width:w,height:h}=ImgProc.toGray(imgRot);
-      if(SETTINGS.blur3x3) gray=ImgProc.blur3x3(gray,w,h);
-      const mask=ImgProc.adaptiveThreshold(gray,w,h,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
-      return {mask,w,h};
-    };
- 
-    const tlMasks={}, brMasks={};
-    let cw=0,ch=0;
-    for(const a of angles){
-      const m1=buildMask(tlN,a), m2=buildMask(brN,a);
-      tlMasks[a]=m1.mask; brMasks[a]=m2.mask;
-      cw=m1.w; ch=m1.h;
-    }
-    return {tlMasks,brMasks,cornerW:cw,cornerH:ch};
-  }
- 
-  static buildSobelData(normData){
-    const sw=CONFIG.sobelSmall.width, sh=CONFIG.sobelSmall.height;
-    const small=ImgProc.downsampleToGray(normData,sw,sh);
-    // blur before sobel to reduce noise
-    const blurred=ImgProc.blur3x3(small,sw,sh);
-    const sobel=ImgProc.sobel(blurred,sw,sh);
-    return {sobel,w:sw,h:sh,n:sw*sh};
-  }
- 
-  static preprocessTemplate(normData,suit){
-    const fullSmall=ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
-    const fullStats=ImgProc.arrayStats(fullSmall);
-    const cornerData=this.buildCornerData(normData);
-    const sobelData=this.buildSobelData(normData);
-    return {
-      fullSmall,fullStats,
-      ...cornerData,
-      sobelData,
-      suitColor:(CARDS[suit]?.color||'black')
-    };
-  }
- 
-  static async loadAllTemplates(){
+  },
+
+  async loadAll() {
     const out={};
-    for(const card of CONFIG.templates){
+    for (const card of CONFIG.templates) {
       const url=`${CONFIG.templatesDir}/${card.file}`;
       const img=await this.loadImage(url);
-      const normCanvas=this.drawToNormCanvas(img);
-      const ctx=normCanvas.getContext('2d',{willReadFrequently:true});
+      const nc=this.drawToNorm(img);
+      const ctx=nc.getContext('2d',{willReadFrequently:true});
       const normData=ctx.getImageData(0,0,CONFIG.norm.width,CONFIG.norm.height);
-      const prep=this.preprocessTemplate(normData,card.suit);
-      out[card.id]={...card,url,normCanvas,normData,...prep};
+
+      const fullSmall=ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
+      const fullStats=ImgProc.arrayStats(fullSmall);
+      const cornerMasks=ImgProc.buildCornerMasks(normData);
+
+      out[card.id]={ ...card, url, normCanvas:nc, normData, fullSmall, fullStats, ...cornerMasks };
     }
     return out;
   }
-}
- 
-/* ===== CardRecognizer ===== */
+};
+
+/* ═══════════════════════════════════════════════
+   RECOGNIZER  — pipeline с дебагом
+═══════════════════════════════════════════════ */
 class CardRecognizer {
-  constructor(){ this.templates={}; this.ready=false; }
- 
-  async loadTemplates(){
-    this.templates=await TemplateLoader.loadAllTemplates();
+  constructor() { this.templates={}; this.ready=false; }
+
+  async loadTemplates() {
+    this.templates=await TemplateLoader.loadAll();
     const keys=Object.keys(this.templates);
     this.ready=keys.length>0;
     return {success:this.ready,loaded:keys.length,total:CONFIG.templates.length};
   }
- 
-  preprocessInput(normData){
-    const {gray:fullGray}=ImgProc.toGray(normData);
-    const std=ImgProc.stdDev(fullGray);
- 
-    const fullSmall=ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
-    const fullStats=ImgProc.arrayStats(fullSmall);
- 
-    // Corner data
-    const angles=getAngles();
-    const tl=ImgProc.extractCorner(normData,'tl');
-    const br=ImgProc.extractCorner(normData,'br');
-    const dbgTL={}, dbgBR={};
- 
-    const tlN=SETTINGS.cornerNormalize?(()=>{const r=ImgProc.normalizeCorner(tl);dbgTL.debug=r.debug;return r.imageData;})():tl;
-    const brN=SETTINGS.cornerNormalize?(()=>{const r=ImgProc.normalizeCorner(br);dbgBR.debug=r.debug;return r.imageData;})():br;
- 
-    const buildMask=(cornerImageData,angleDeg)=>{
-      const imgRot=ImgProc.rotateImageData(cornerImageData,angleDeg);
-      let {gray,width:w,height:h}=ImgProc.toGray(imgRot);
-      if(SETTINGS.blur3x3) gray=ImgProc.blur3x3(gray,w,h);
-      const mask=ImgProc.adaptiveThreshold(gray,w,h,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
-      return {mask,w,h};
-    };
- 
-    const tlMasks={},brMasks={};
-    let cw=0,ch=0;
-    for(const a of angles){
-      const m1=buildMask(tlN,a), m2=buildMask(brN,a);
-      tlMasks[a]=m1.mask; brMasks[a]=m2.mask;
-      cw=m1.w; ch=m1.h;
+
+  /* Сравнение угла с шаблоном по всем углам поворота и двум углам карты */
+  scoreCorner(inTL, inBR, angles, tmpl) {
+    let best=-1, bestAngle=0, bestWhich='tl';
+    for (const a of angles) {
+      const s1=ImgProc.matchBinary(inTL[a],tmpl.tlMasks[a],tmpl.cw,tmpl.ch,S.maxShift);
+      const s2=ImgProc.matchBinary(inBR[a],tmpl.brMasks[a],tmpl.cw,tmpl.ch,S.maxShift);
+      if(s1>best){ best=s1; bestAngle=a; bestWhich='TL'; }
+      if(s2>best){ best=s2; bestAngle=a; bestWhich='BR'; }
     }
- 
-    // Sobel
-    const sobelData=TemplateLoader.buildSobelData(normData);
- 
-    // Suit hint — dual corner
-    const redRatio=ImgProc.redRatioDual(normData);
-    const suitHint=redRatio>0.07?'red':'black';
- 
-    return {
-      std, fullSmall, fullStats,
-      cornerW:cw, cornerH:ch,
-      tlMasks, brMasks,
-      sobelData,
-      redRatio, suitHint,
-      dbgTL, dbgBR,
-      angles
-    };
+    return {score:best,angle:bestAngle,which:bestWhich};
   }
- 
-  scoreCornerDual(prep, tmpl){
-    let best=-1, bestMeta={angle:0,which:'tl'};
-    for(const a of prep.angles){
-      const s1=ImgProc.matchBinary(prep.tlMasks[a],tmpl.tlMasks[a],tmpl.cornerW,tmpl.cornerH,SETTINGS.maxShift);
-      const s2=ImgProc.matchBinary(prep.brMasks[a],tmpl.brMasks[a],tmpl.cornerW,tmpl.cornerH,SETTINGS.maxShift);
-      if(s1>best){best=s1;bestMeta={angle:a,which:'tl'};}
-      if(s2>best){best=s2;bestMeta={angle:a,which:'br'};}
-    }
-    return {score:best,meta:bestMeta};
-  }
- 
-  async recognize(normData){
-    const debug={};
-    if(!this.ready) return {error:'Шаблоны не готовы',debug,candidates:[]};
- 
-    const prep=this.preprocessInput(normData);
-    debug.std=prep.std.toFixed(1);
-    debug.redRatio=(prep.redRatio*100).toFixed(1)+'%';
-    debug.suitHint=prep.suitHint;
-    debug.angles=prep.angles.join(',')+'°';
-    debug.cornerNormTL=prep.dbgTL.debug||'';
-    debug.cornerNormBR=prep.dbgBR.debug||'';
- 
-    if(prep.std<SETTINGS.minStd)
-      return {error:`Мало деталей (контраст ${debug.std})`,debug,candidates:[],prep};
- 
-    const sumW=SETTINGS.wCorner+SETTINGS.wFull+SETTINGS.wSobel+SETTINGS.wSuit;
- 
-    const candidates=[];
-    for(const [id,t] of Object.entries(this.templates)){
-      const cornerRes=this.scoreCornerDual(prep,t);
-      const full=ImgProc.ncc01(prep.fullSmall,prep.fullStats,t.fullSmall,t.fullStats);
- 
-      let sobelScore=0;
-      if(SETTINGS.useSobel && prep.sobelData && t.sobelData){
-        sobelScore=ImgProc.nccSobel(prep.sobelData.sobel,t.sobelData.sobel,prep.sobelData.n);
-      }
- 
-      const suit=(t.suitColor===prep.suitHint)?1.0:0.55;
- 
-      const total=(
-        SETTINGS.wCorner*cornerRes.score +
-        SETTINGS.wFull*full +
-        SETTINGS.wSobel*sobelScore +
-        SETTINGS.wSuit*suit
-      )/(sumW||1);
- 
-      candidates.push({
-        id,name:t.name,rank:t.rank,suit:t.suit,
-        total,corner:cornerRes.score,
-        cornerWhich:cornerRes.meta.which,cornerAngle:cornerRes.meta.angle,
-        full,sobelScore,suitPrior:suit
-      });
-    }
- 
-    candidates.sort((a,b)=>b.total-a.total);
-    const best=candidates[0], second=candidates[1];
- 
-    debug.best=best?best.name:'N/A';
-    debug.bestScore=best?(best.total*100).toFixed(1)+'%':'N/A';
-    debug.bestParts=best?
-      `C:${(best.corner*100).toFixed(1)}(${best.cornerWhich}@${best.cornerAngle}°) F:${(best.full*100).toFixed(1)} S:${(best.sobelScore*100).toFixed(1)}`:
-      'N/A';
-    debug.second=second?second.name:'N/A';
-    debug.secondScore=second?(second.total*100).toFixed(1)+'%':'N/A';
-    debug.margin=(best&&second)?((best.total-second.total)*100).toFixed(1)+'%':'N/A';
- 
-    if(!best) return {error:'Нет кандидатов',debug,candidates,prep};
- 
-    if(best.total<SETTINGS.minScore)
-      return {error:`Слабое совпадение (${(best.total*100).toFixed(1)}%)`,debug,candidates,prep};
- 
-    const margin=best.total-(second?.total||0);
-    if(margin<SETTINGS.minMargin)
-      return {error:`Неуверенно (разрыв ${(margin*100).toFixed(1)}%)`,debug,candidates,prep};
- 
+
+  async recognize(normData) {
+    const pipeline = {};
+
+    if (!this.ready) return { error:'Шаблоны не готовы', pipeline };
+
+    /* --- std check --- */
+    const {gray:fg} = ImgProc.toGray(normData);
+    const std = ImgProc.stdDev(fg);
+    pipeline.std = std.toFixed(1);
+    if (std < S.minStd) return { error:`Мало деталей (σ=${std.toFixed(1)})`, pipeline };
+
+    /* ── ШАГ 1: ОПРЕДЕЛЯЕМ ЦВЕТ МАСТИ (только по углам) ── */
+    const colorInfo = ImgProc.detectColor(normData);
+    pipeline.color = colorInfo;
+
+    /* ── ШАГ 2: ФИЛЬТРУЕМ КАНДИДАТОВ ПО ЦВЕТУ ── */
+    const allTemplates = Object.values(this.templates);
+    const filtered = allTemplates.filter(t => t.color === colorInfo.color);
+    const rest     = allTemplates.filter(t => t.color !== colorInfo.color);
+    pipeline.colorFiltered = filtered.map(t=>t.id);
+
+    /* ── ШАГ 3: ВЫЧИСЛЯЕМ ПРИЗНАКИ ── */
+    const angles = getAngles();
+
+    // Предобрабатываем угол входного кадра один раз
+    const inCorners = ImgProc.buildCornerMasks(normData);
+    const inTL = inCorners.tlMasks;
+    const inBR = inCorners.brMasks;
+
+    const fullSmall = ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
+    const fullStats = ImgProc.arrayStats(fullSmall);
+
+    const score = (t, suitBoost) => {
+      const cr = this.scoreCorner(inTL,inBR,angles,t);
+      const fl = ImgProc.ncc01(fullSmall,fullStats,t.fullSmall,t.fullStats);
+      const { corner:wC, full:wF, suit:wS } = CONFIG.weights;
+      const total = (wC*cr.score + wF*fl + wS*suitBoost) / (wC+wF+wS);
+      return { corner:cr.score, full:fl, total, suitBoost,
+               cornerAngle:cr.angle, cornerWhich:cr.which };
+    };
+
+    // Все кандидаты — отфильтрованные получают suit=1.0, остальные suit=0.3
+    const candidates = [
+      ...filtered.map(t => ({ ...t, ...score(t,1.0), colorMatch:true })),
+      ...rest.map(t     => ({ ...t, ...score(t,0.3), colorMatch:false }))
+    ].sort((a,b)=>b.total-a.total);
+
+    pipeline.candidates = candidates;
+
+    /* ── ШАГ 4: РЕШЕНИЕ ── */
+    const best   = candidates[0];
+    const second = candidates[1];
+    const margin = best ? (best.total-(second?.total||0)) : 0;
+
+    pipeline.best   = best;
+    pipeline.second = second;
+    pipeline.margin = margin;
+
+    if (!best)              return { error:'Нет кандидатов', pipeline };
+    if (best.total<S.minScore)
+      return { error:`Слабое совпадение (${(best.total*100).toFixed(1)}%)`, pipeline };
+    if (margin<S.minMargin)
+      return { error:`Неуверенно, разрыв ${(margin*100).toFixed(1)}%`, pipeline };
+
     return {
-      rank:best.rank,suit:best.suit,name:best.name,
+      rank:best.rank, suit:best.suit, name:best.name,
       confidence:Math.round(best.total*100),
-      debug,candidates,prep
+      pipeline,
+      inCornerMask: inTL[0]||inTL[Object.keys(inTL)[0]],
+      cornerW:inCorners.cw, cornerH:inCorners.ch
     };
   }
 }
- 
-/* ===== App ===== */
+
+/* ═══════════════════════════════════════════════
+   APP
+═══════════════════════════════════════════════ */
 class App {
-  constructor(){
-    this.video=document.getElementById('video');
-    this.loader=document.getElementById('loader');
-    this.recognizer=new CardRecognizer();
-    this.stream=null;
-    this.facingMode='environment';
- 
-    this.debugMode=false;
-    this.settingsOpen=false;
-    this.autoMode=false;
-    this.autoTimer=null;
-    this.isRecognizing=false;
-    this.lastStableId=null;
-    this.stableCount=0;
- 
-    // Большой ROI canvas — сохраняет детали при дальнем расстоянии
-    this.roiCanvas=document.createElement('canvas');
+  constructor() {
+    this.video    = document.getElementById('video');
+    this.loader   = document.getElementById('loader');
+    this.recognizer = new CardRecognizer();
+    this.stream   = null;
+    this.facingMode = 'environment';
+
+    this.autoMode = false;
+    this.autoTimer= null;
+    this.isRecognizing = false;
+    this.stableId = null;
+    this.stableCount = 0;
+
+    // ── Для каждого масштаба захвата — отдельный ROI-canvas ──
+    // Используем один большой canvas и рисуем в него по-разному
+    this.roiCanvas = document.createElement('canvas');
     this.roiCanvas.width=720; this.roiCanvas.height=1008;
-    this.roiCtx=this.roiCanvas.getContext('2d',{willReadFrequently:true});
- 
-    this.normCanvas=document.createElement('canvas');
+    this.roiCtx    = this.roiCanvas.getContext('2d',{willReadFrequently:true});
+
+    this.normCanvas = document.createElement('canvas');
     this.normCanvas.width=CONFIG.norm.width; this.normCanvas.height=CONFIG.norm.height;
-    this.normCtx=this.normCanvas.getContext('2d',{willReadFrequently:true});
- 
+    this.normCtx    = this.normCanvas.getContext('2d',{willReadFrequently:true});
+
+    // ── Хранилище последнего дебага (всегда обновляется в фоне) ──
+    this.lastDebug = null;
+
     this.init();
   }
- 
-  showOverlayLoader(text,sub=''){
-    document.getElementById('loader').style.display='block';
-    document.getElementById('loaderText').textContent=text||'Загрузка...';
-    document.getElementById('loaderSubtext').textContent=sub||'';
+
+  setLoading(text,sub=''){
+    this.loader.style.display='block';
+    document.getElementById('loaderText').textContent=text;
+    document.getElementById('loaderSubtext').textContent=sub;
   }
-  hideOverlayLoader(){ document.getElementById('loader').style.display='none'; }
- 
-  async init(){
-    try{
-      this.setStatus('Загрузка шаблонов...');
-      this.showOverlayLoader('Инициализация...','Загрузка шаблонов и запуск камеры');
-      const res=await this.recognizer.loadTemplates();
-      if(!res.success) throw new Error('Не удалось загрузить шаблоны');
-      this.setStatus('Запуск камеры...');
+  hideLoading(){ this.loader.style.display='none'; }
+
+  async init() {
+    try {
+      this.setLoading('Загрузка шаблонов...','templates/*.jpg');
+      const res = await this.recognizer.loadTemplates();
+      if (!res.success) throw new Error('Не удалось загрузить шаблоны');
+
+      this.setLoading('Запуск камеры...');
       await this.startCamera();
       this.setupControls();
       this.setupSettingsUI();
-      this.hideOverlayLoader();
+      this.hideLoading();
       this.setStatus('Наведите камеру на карту');
       this.log(`✓ Шаблонов: ${res.loaded}/${res.total}`,'ok');
-    } catch(e){
-      this.loader.innerHTML=`
-        <div style="color:#f44336;font-size:16px;font-weight:bold;">Ошибка!</div>
-        <div style="font-size:12px;margin-top:10px;">${e.message}</div>
-        <div style="font-size:10px;margin-top:10px;color:#888;">Откройте через http(s). Проверьте templates/*.jpg</div>
-      `;
-      console.error(e);
+    } catch(e) {
+      this.loader.innerHTML=`<div style="color:#f44336;font-size:15px;font-weight:bold;">Ошибка!</div>
+        <div style="font-size:11px;margin-top:10px;">${e.message}</div>
+        <div style="font-size:10px;margin-top:10px;color:#888;">Откройте через http(s). Проверьте templates/*.jpg</div>`;
     }
   }
- 
-  async startCamera(){
-    const c={video:{width:CONFIG.video.width,height:CONFIG.video.height,facingMode:this.facingMode},audio:false};
-    this.stream=await navigator.mediaDevices.getUserMedia(c);
+
+  async startCamera() {
+    const constraints={video:{...CONFIG.video,facingMode:this.facingMode},audio:false};
+    this.stream=await navigator.mediaDevices.getUserMedia(constraints);
     this.video.srcObject=this.stream;
     await new Promise(r=>this.video.onloadedmetadata=r);
     await this.video.play();
   }
- 
-  setupControls(){
+
+  setupControls() {
     document.getElementById('recognizeBtn').onclick=()=>this.recognizeOnce(false);
- 
-    document.getElementById('autoBtn').onclick=()=>{
+
+    const autoBtn=document.getElementById('autoBtn');
+    autoBtn.onclick=()=>{
       this.autoMode=!this.autoMode;
-      const btn=document.getElementById('autoBtn');
-      btn.classList.toggle('on',this.autoMode);
-      btn.textContent=this.autoMode?'⏸ Стоп':'🔄 Авто';
-      this.lastStableId=null; this.stableCount=0;
-      if(this.autoMode){ this.log('Авто режим ВКЛ','ok'); this.autoLoop(); }
-      else { this.log('Авто режим ВЫКЛ'); if(this.autoTimer) clearTimeout(this.autoTimer); this.autoTimer=null; }
+      autoBtn.classList.toggle('on',this.autoMode);
+      autoBtn.textContent=this.autoMode?'⏸ Стоп':'🔄 Авто';
+      this.stableId=null; this.stableCount=0;
+      if(this.autoMode){ this.log('Авто ВКЛ','ok'); this.autoLoop(); }
+      else { this.log('Авто ВЫКЛ'); clearTimeout(this.autoTimer); }
     };
- 
+
     document.getElementById('debugBtn').onclick=()=>{
-      this.debugMode=!this.debugMode;
-      document.getElementById('debugPanel').classList.toggle('show',this.debugMode);
-      document.getElementById('debugBtn').classList.toggle('on',this.debugMode);
+      document.getElementById('debugPanel').classList.add('show');
+      this.renderDebugPanel();
     };
- 
-    // Кнопка ✕ внутри debug-панели
-    document.getElementById('debugCloseBtn').onclick=()=>{
-      this.debugMode=false;
+    document.getElementById('dbgCloseBtn').onclick=()=>{
       document.getElementById('debugPanel').classList.remove('show');
-      document.getElementById('debugBtn').classList.remove('on');
     };
- 
+
     document.getElementById('settingsBtn').onclick=()=>{
-      this.settingsOpen=!this.settingsOpen;
-      document.getElementById('settingsPanel').classList.toggle('show',this.settingsOpen);
-      document.getElementById('settingsBtn').classList.toggle('on',this.settingsOpen);
-      if(this.settingsOpen) this.refreshSettingsUI();
+      const p=document.getElementById('settingsPanel');
+      const open=!p.classList.contains('show');
+      p.classList.toggle('show',open);
+      document.getElementById('settingsBtn').classList.toggle('on',open);
     };
- 
+
     document.getElementById('switchBtn').onclick=async()=>{
       this.facingMode=this.facingMode==='environment'?'user':'environment';
       if(this.stream) this.stream.getTracks().forEach(t=>t.stop());
@@ -954,65 +810,51 @@ class App {
       this.log('Камера переключена','ok');
     };
   }
- 
-  setupSettingsUI(){
-    const $=id=>document.getElementById(id);
-    const bind=(id,key,factor=1,isCheck=false)=>{
-      const el=$(id);
-      if(isCheck){
-        el.checked=!!SETTINGS[key];
-        el.onchange=()=>{SETTINGS[key]=el.checked;saveSettings();this.refreshSettingsUI();};
-      } else {
-        el.value=Math.round(SETTINGS[key]*factor);
-        el.oninput=()=>{SETTINGS[key]=Number(el.value)/factor;saveSettings();this.refreshSettingsUI();};
-      }
-    };
- 
-    bind('ui_minScore','minScore',100);
-    bind('ui_minMargin','minMargin',100);
-    bind('ui_adaptC','adaptiveC');
-    bind('ui_maxShift','maxShift');
-    bind('ui_stable','autoStable');
-    bind('ui_angles','anglesPreset');
-    bind('ui_cornerNorm','cornerNormalize',1,true);
-    bind('ui_useSobel','useSobel',1,true);
- 
-    $('ui_adaptWin').value=SETTINGS.adaptiveWindow;
-    $('ui_adaptWin').onchange=()=>{
-      let v=Number($('ui_adaptWin').value);
-      if(v%2===0) v+=1;
-      v=Math.max(7,Math.min(41,v));
-      SETTINGS.adaptiveWindow=v; $('ui_adaptWin').value=v;
-      saveSettings(); this.refreshSettingsUI();
-    };
- 
-    $('ui_resetBtn').onclick=()=>{
-      SETTINGS=structuredClone(DEFAULT_SETTINGS); saveSettings();
-      this.setupSettingsUI(); this.log('Настройки сброшены','ok');
-    };
-    $('ui_closeBtn').onclick=()=>{
-      this.settingsOpen=false;
-      $('settingsPanel').classList.remove('show');
-      $('settingsBtn').classList.remove('on');
-    };
-    this.refreshSettingsUI();
+
+  /* ── Захват ROI из видео с нужным масштабом ── */
+  captureROI(scaleFactor=1.0) {
+    const zone = document.getElementById('scanZone');
+    const zr   = zone.getBoundingClientRect();
+    const vr   = this.video.getBoundingClientRect();
+
+    // Центр scan-зоны на экране
+    const cx=(zr.left+zr.right)/2, cy=(zr.top+zr.bottom)/2;
+    // Размер захватываемой области (с масштабом)
+    const inset=6;
+    const capW=(zr.width  -inset*2)*scaleFactor;
+    const capH=(zr.height -inset*2)*scaleFactor;
+
+    // Перевод в координаты видео
+    const srcW=this.video.videoWidth, srcH=this.video.videoHeight;
+    const elW=vr.width, elH=vr.height;
+    const scale=Math.max(elW/srcW,elH/srcH);
+    const shownW=elW/scale, shownH=elH/scale;
+    const offX=(srcW-shownW)/2, offY=(srcH-shownH)/2;
+
+    // Центр в координатах видео
+    const vcx=offX+((cx-vr.left)/scale);
+    const vcy=offY+((cy-vr.top )/scale);
+
+    const sw=capW/scale, sh=capH/scale;
+    const sx=vcx-sw/2,   sy=vcy-sh/2;
+
+    this.roiCtx.imageSmoothingEnabled=true;
+    this.roiCtx.imageSmoothingQuality='high';
+    this.roiCtx.fillStyle='#fff';
+    this.roiCtx.fillRect(0,0,this.roiCanvas.width,this.roiCanvas.height);
+    this.roiCtx.drawImage(this.video, sx,sy,sw,sh, 0,0,this.roiCanvas.width,this.roiCanvas.height);
   }
- 
-  refreshSettingsUI(){
-    const $=id=>document.getElementById(id);
-    $('ui_minScoreVal').textContent=Math.round(SETTINGS.minScore*100)+'%';
-    $('ui_minMarginVal').textContent=Math.round(SETTINGS.minMargin*100)+'%';
-    $('ui_adaptWinVal').textContent=SETTINGS.adaptiveWindow;
-    $('ui_adaptCVal').textContent=SETTINGS.adaptiveC;
-    $('ui_maxShiftVal').textContent=SETTINGS.maxShift;
-    $('ui_cornerNormVal').textContent=SETTINGS.cornerNormalize?'ON':'OFF';
-    $('ui_sobelVal').textContent=SETTINGS.useSobel?'ON':'OFF';
-    const angles=getAngles();
-    $('ui_anglesVal').textContent=angles.join(',')+'°';
-    $('ui_stableVal').textContent=SETTINGS.autoStable+'x';
+
+  getNormData() {
+    this.normCtx.fillStyle='#fff';
+    this.normCtx.fillRect(0,0,CONFIG.norm.width,CONFIG.norm.height);
+    this.normCtx.imageSmoothingEnabled=true; this.normCtx.imageSmoothingQuality='high';
+    this.normCtx.drawImage(this.roiCanvas,0,0,this.roiCanvas.width,this.roiCanvas.height,
+      0,0,CONFIG.norm.width,CONFIG.norm.height);
+    return this.normCtx.getImageData(0,0,CONFIG.norm.width,CONFIG.norm.height);
   }
- 
-  autoLoop(){
+
+  autoLoop() {
     const tick=async()=>{
       if(!this.autoMode) return;
       await this.recognizeOnce(true);
@@ -1020,160 +862,102 @@ class App {
     };
     tick();
   }
- 
-  captureROIToCanvas(){
-    const zone=document.getElementById('scanZone');
-    const zr=zone.getBoundingClientRect();
-    const vr=this.video.getBoundingClientRect();
- 
-    const inset=8;
-    const zoneLeft=zr.left+inset, zoneTop=zr.top+inset;
-    const zoneW=Math.max(20,zr.width-inset*2), zoneH=Math.max(20,zr.height-inset*2);
- 
-    const srcW=this.video.videoWidth, srcH=this.video.videoHeight;
-    const elW=vr.width, elH=vr.height;
-    const scale=Math.max(elW/srcW,elH/srcH);
-    const shownW=elW/scale, shownH=elH/scale;
-    const offsetX=(srcW-shownW)/2, offsetY=(srcH-shownH)/2;
- 
-    const relX=zoneLeft-vr.left, relY=zoneTop-vr.top;
-    const sx=offsetX+(relX/scale), sy=offsetY+(relY/scale);
-    const sw=zoneW/scale, sh=zoneH/scale;
- 
-    this.roiCtx.imageSmoothingEnabled=true;
-    this.roiCtx.imageSmoothingQuality='high';
-    this.roiCtx.drawImage(this.video,sx,sy,sw,sh,0,0,this.roiCanvas.width,this.roiCanvas.height);
- 
-    return {video:`${srcW}x${srcH}`,roi:`${this.roiCanvas.width}x${this.roiCanvas.height}`,
-      scale:scale.toFixed(3),sx:sx.toFixed(1),sy:sy.toFixed(1),sw:sw.toFixed(1),sh:sh.toFixed(1)};
-  }
- 
-  getNormImageDataFromROI(){
-    this.normCtx.imageSmoothingEnabled=true; this.normCtx.imageSmoothingQuality='high';
-    this.normCtx.fillStyle='#fff'; this.normCtx.fillRect(0,0,this.normCanvas.width,this.normCanvas.height);
-    this.normCtx.drawImage(this.roiCanvas,0,0,this.roiCanvas.width,this.roiCanvas.height,
-      0,0,this.normCanvas.width,this.normCanvas.height);
-    return this.normCtx.getImageData(0,0,this.normCanvas.width,this.normCanvas.height);
-  }
- 
-  renderCandidates(cands, limit=8){
-    const box=document.getElementById('debugCandidates');
-    box.innerHTML='';
-    cands.slice(0,limit).forEach((c,i)=>{
-      const line=document.createElement('div');
-      line.className='cand-line';
-      line.innerHTML=`
-        <div class="cand-left">${i+1}) ${c.name}</div>
-        <div class="cand-right">${(c.total*100).toFixed(1)}% C:${(c.corner*100).toFixed(1)}(${c.cornerWhich}@${c.cornerAngle}°) F:${(c.full*100).toFixed(1)} S:${(c.sobelScore*100).toFixed(1)}</div>
-      `;
-      box.appendChild(line);
-    });
-  }
- 
-  renderDebugLines(obj){
-    const order=['video','roi','scale','sx','sy','sw','sh','std','redRatio','suitHint','angles','cornerNormTL','cornerNormBR',
-      'best','bestScore','bestParts','second','secondScore','margin','decision'];
-    const labels={video:'video',roi:'ROI',scale:'scale',sx:'sx',sy:'sy',sw:'sw',sh:'sh',
-      std:'contrast',redRatio:'redRatio',suitHint:'suitHint',angles:'angles',
-      cornerNormTL:'cnormTL',cornerNormBR:'cnormBR',
-      best:'best',bestScore:'bestScore',bestParts:'bestParts',
-      second:'second',secondScore:'secondScore',margin:'margin',decision:'decision'};
-    let html='';
-    for(const k of order){
-      if(obj[k]===undefined) continue;
-      html+=`<div class="dbg-line">${labels[k]||k}: <span style="color:#fff">${obj[k]}</span></div>`;
-    }
-    document.getElementById('debugInfo').innerHTML=html;
-  }
- 
-  drawDebugCanvases(roiCanvas, normData, cornerMask, cw, ch, sobelData){
-    const roiCtx=document.getElementById('dbgROI').getContext('2d',{willReadFrequently:true});
-    roiCtx.clearRect(0,0,90,126);
-    roiCtx.imageSmoothingEnabled=true; roiCtx.imageSmoothingQuality='high';
-    roiCtx.drawImage(roiCanvas,0,0,90,126);
- 
-    const drawID=(canvas,imageData)=>{
-      const ctx=canvas.getContext('2d',{willReadFrequently:true});
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      if(!imageData) return;
-      const tmp=document.createElement('canvas');
-      tmp.width=imageData.width; tmp.height=imageData.height;
-      tmp.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
-      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
-      ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
-    };
-    drawID(document.getElementById('dbgNorm'),normData);
- 
-    if(cornerMask&&cw&&ch)
-      ImgProc.drawBinaryCornerToCanvas(cornerMask,cw,ch,document.getElementById('dbgBin'));
-    else
-      document.getElementById('dbgBin').getContext('2d').clearRect(0,0,200,280);
- 
-    if(sobelData)
-      ImgProc.drawGrayToCanvas(sobelData.sobel,sobelData.w,sobelData.h,document.getElementById('dbgSobel'));
-    else
-      document.getElementById('dbgSobel').getContext('2d').clearRect(0,0,200,280);
-  }
- 
-  async recognizeOnce(isAuto){
-    if(this.isRecognizing) return;
+
+  async recognizeOnce(isAuto) {
+    if (this.isRecognizing) return;
     this.isRecognizing=true;
     const btn=document.getElementById('recognizeBtn');
     const zone=document.getElementById('scanZone');
-    try{
-      btn.textContent='⏳';
-      zone.classList.add('active');
-      this.setStatus('Анализ...');
-      await new Promise(r=>setTimeout(r,25));
- 
-      const roiDbg=this.captureROIToCanvas();
-      const normData=this.getNormImageDataFromROI();
-      const result=await this.recognizer.recognize(normData);
- 
-      if(this.debugMode){
-        this.renderCandidates(result.candidates||[],8);
-        this.renderDebugLines({...roiDbg,...(result.debug||{}),
-          decision:result.error?('ERR: '+result.error):'OK'});
-        const angles=getAngles();
-        const a0=angles.includes(0)?0:angles[0];
-        const cornerMask=result.prep?.tlMasks?.[a0]||null;
-        this.drawDebugCanvases(this.roiCanvas,normData,cornerMask,
-          result.prep?.cornerW||0,result.prep?.cornerH||0,
-          result.prep?.sobelData||null);
+    btn.textContent='⏳'; zone.classList.add('active');
+    this.setStatus('Анализ...');
+
+    try {
+      await new Promise(r=>setTimeout(r,20));
+
+      /* ── Мультимасштабный захват ── */
+      const scales=CONFIG.captureScales;
+      let bestResult=null, bestConfidence=0, bestScale=1.0;
+      let bestNormData=null, bestROI=null;
+
+      for (const sc of scales) {
+        this.captureROI(sc);
+        // Сохраним копию ROI для дебага
+        const roiCopy=document.createElement('canvas');
+        roiCopy.width=this.roiCanvas.width; roiCopy.height=this.roiCanvas.height;
+        roiCopy.getContext('2d',{willReadFrequently:true}).drawImage(this.roiCanvas,0,0);
+
+        const normData=this.getNormData();
+        const result=await this.recognizer.recognize(normData);
+        const conf=result.confidence||0;
+
+        const isBetter=!bestResult ||
+          (!result.error && (bestResult.error || conf>bestConfidence));
+
+        if (isBetter) {
+          bestResult=result; bestConfidence=conf;
+          bestScale=sc; bestNormData=normData;
+          // Сохраняем ROI в нормальный размер для дебага
+          bestROI=document.createElement('canvas');
+          bestROI.width=200; bestROI.height=280;
+          const bctx=bestROI.getContext('2d',{willReadFrequently:true});
+          bctx.imageSmoothingEnabled=true; bctx.imageSmoothingQuality='high';
+          bctx.drawImage(roiCopy,0,0,200,280);
+        }
+
+        // Ранний выход если уверенны
+        if (!result.error && conf>=88) break;
       }
- 
+
+      // ── Сохраняем дебаг в фоне (всегда) ──
+      this.lastDebug = {
+        result: bestResult,
+        scale: bestScale,
+        scales,
+        normData: bestNormData,
+        roiCanvas: bestROI,
+        cornerMask: bestResult?.inCornerMask||null,
+        cornerW: bestResult?.cornerW||0,
+        cornerH: bestResult?.cornerH||0,
+        ts: new Date()
+      };
+
+      // Если дебаг-панель открыта — обновляем сразу
+      if (document.getElementById('debugPanel').classList.contains('show')) {
+        this.renderDebugPanel();
+      }
+
       btn.textContent='🎯 Распознать';
       zone.classList.remove('active');
- 
-      if(result.error){
+
+      if (bestResult.error) {
         zone.classList.add('error');
         setTimeout(()=>zone.classList.remove('error'),700);
-        this.setStatus(result.error,'error');
-        this.log('✗ '+result.error,'err');
+        this.setStatus(bestResult.error,'error');
+        this.log('✗ '+bestResult.error,'err');
         return;
       }
- 
-      // стабилизация для авторежима
-      if(isAuto&&SETTINGS.autoStable>1){
-        const bestId=result.candidates?.[0]?.id;
-        if(this.lastStableId===bestId) this.stableCount++;
-        else { this.lastStableId=bestId; this.stableCount=1; }
-        if(this.stableCount<SETTINGS.autoStable){
-          this.setStatus(`Предварительно: ${result.name} (${this.stableCount}/${SETTINGS.autoStable})`);
-          this.log(`… ${result.name} (${this.stableCount}/${SETTINGS.autoStable})`,'warn');
+
+      // Стабилизация для авто
+      if (isAuto && S.autoStable>1) {
+        const bid=bestResult.pipeline?.best?.id;
+        if (this.stableId===bid) this.stableCount++;
+        else { this.stableId=bid; this.stableCount=1; }
+        if (this.stableCount<S.autoStable) {
+          this.setStatus(`Предварительно: ${bestResult.name} (${this.stableCount}/${S.autoStable})`);
+          this.log(`… ${bestResult.name} (${this.stableCount}/${S.autoStable})`,'warn');
           return;
         }
-        this.lastStableId=null; this.stableCount=0;
+        this.stableId=null; this.stableCount=0;
       }
- 
-      this.showResult(result);
-      this.setStatus('✅ '+result.name,'ok');
-      this.log(`✓ ${result.name} (${result.confidence}%)`,'ok');
+
+      this.showResult(bestResult);
+      this.setStatus(`✅ ${bestResult.name} (масштаб ${bestScale.toFixed(2)})`,'ok');
+      this.log(`✓ ${bestResult.name} (${bestResult.confidence}%) ×${bestScale.toFixed(2)}`,'ok');
       if(navigator.vibrate) navigator.vibrate([40,30,40]);
- 
-    } catch(e){
+
+    } catch(e) {
       btn.textContent='🎯 Распознать';
-      zone.classList.remove('active');
+      zone.classList.remove('active','active');
       zone.classList.add('error');
       setTimeout(()=>zone.classList.remove('error'),700);
       this.setStatus(e.message,'error');
@@ -1183,34 +967,237 @@ class App {
       this.isRecognizing=false;
     }
   }
- 
-  showResult(card){
-    const suitInfo=CARDS[card.suit]||{class:''};
+
+  /* ═══ РЕНДЕР DEBUG-ПАНЕЛИ (из lastDebug) ═══ */
+  renderDebugPanel() {
+    const noData=document.getElementById('dbgNoData');
+    const content=document.getElementById('dbgContent');
+
+    if (!this.lastDebug) { noData.style.display=''; content.style.display='none'; return; }
+    noData.style.display='none'; content.style.display='';
+
+    const { result, scale, scales, normData, roiCanvas, cornerMask, cornerW, cornerH, ts } = this.lastDebug;
+    const pl = result?.pipeline || {};
+
+    let html = '';
+
+    /* ─ Общая информация ─ */
+    html += `<div class="pipe-step">
+      <div class="pipe-head">
+        <span class="pipe-num">ⓘ</span>
+        <span class="pipe-name">ЗАХВАТ</span>
+        <span class="pipe-res">${ts.toLocaleTimeString()}</span>
+      </div>
+      <div class="pipe-body">
+        <div class="row"><span class="k">Попытки масштабов</span><span class="v">${scales.map(s=>s.toFixed(2)).join(' / ')}</span></div>
+        <div class="row"><span class="k">Лучший масштаб</span><span class="v">${scale.toFixed(2)}× ${scale<0.9?'(карта далеко, зум ↑)':scale>1.1?'(карта близко, зум ↓)':'(стандарт)'}</span></div>
+        <div class="row"><span class="k">Контраст (σ)</span><span class="v">${pl.std||'?'}</span></div>
+      </div>
+    </div>`;
+
+    /* ─ Шаг 1: Цвет масти ─ */
+    const ci = pl.color;
+    if (ci) {
+      const bar=(v,max=0.5,red=false)=>{
+        const pct=Math.min(100,(v/max)*100);
+        return `<div class="bar-bg"><div class="bar-fg${red?' red':''}" style="width:${pct}%"></div></div>`;
+      };
+      html += `<div class="pipe-step">
+        <div class="pipe-head">
+          <span class="pipe-num">①</span>
+          <span class="pipe-name">ЦВЕТ МАСТИ</span>
+          <span class="pipe-res">${ci.color==='red'?'🔴 КРАСНЫЙ':'⚫ ЧЁРНЫЙ'}</span>
+        </div>
+        <div class="pipe-body">
+          <div class="row"><span class="k">Красный угол TL</span><span class="v">${(ci.tlRatio*100).toFixed(1)}% &nbsp; ${bar(ci.tlRatio,0.4,true)}</span></div>
+          <div class="row"><span class="k">Красный угол BR</span><span class="v">${(ci.brRatio*100).toFixed(1)}% &nbsp; ${bar(ci.brRatio,0.4,true)}</span></div>
+          <div class="row"><span class="k">Итого (макс)</span><span class="v">${(ci.ratio*100).toFixed(1)}% → порог 7%</span></div>
+          <div style="color:#888;margin-top:4px;font-size:8px;">* Цвет определяется ТОЛЬКО по углам карты (для картинок тело может быть другого цвета)</div>
+        </div>
+      </div>`;
+    }
+
+    /* ─ Шаг 2: Фильтр + кандидаты ─ */
+    const cands = pl.candidates;
+    if (cands && cands.length) {
+      const bestId = pl.best?.id;
+      let candRows='';
+      cands.forEach((c,i)=>{
+        const isBest=c.id===bestId;
+        const pct=(c.total*100).toFixed(1);
+        const barW=Math.round(c.total*100);
+        candRows+=`<tr class="${isBest?'best-row':''}">
+          <td class="name-col">${isBest?'★ ':''} ${c.name}</td>
+          <td><div class="bar-bg"><div class="bar-fg" style="width:${barW}%"></div></div></td>
+          <td class="score-col">${pct}%</td>
+          <td>${(c.corner*100).toFixed(1)}%</td>
+          <td>${(c.full*100).toFixed(1)}%</td>
+          <td>${c.colorMatch?'✓':'-'}</td>
+          <td style="color:#aaa;font-size:8px">${c.cornerWhich}@${c.cornerAngle}°</td>
+        </tr>`;
+      });
+
+      const margin = pl.margin ? (pl.margin*100).toFixed(1) : '?';
+      const ok = !result.error;
+
+      html += `<div class="pipe-step">
+        <div class="pipe-head">
+          <span class="pipe-num">②③</span>
+          <span class="pipe-name">КАНДИДАТЫ (${(pl.colorFiltered||[]).length}/8 после фильтра цвета)</span>
+          <span class="pipe-res">${ok?`✓ ${result.name}`:'✗ '+result.error}</span>
+        </div>
+        <div class="pipe-body">
+          <table class="cand-table">
+            <tr><th>Карта</th><th style="min-width:60px">Счёт</th><th>%</th><th>Угол</th><th>Тело</th><th>Цвет</th><th>Угол/°</th></tr>
+            ${candRows}
+          </table>
+          <div class="row" style="margin-top:6px">
+            <span class="k">Разрыв 1-2 место</span>
+            <span class="v" style="color:${parseFloat(margin)>=S.minMargin*100?'#4CAF50':'#f44336'}">${margin}% (порог: ${(S.minMargin*100).toFixed(0)}%)</span>
+          </div>
+          <div class="row">
+            <span class="k">Минимальный порог</span>
+            <span class="v">${(S.minScore*100).toFixed(0)}%</span>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    /* ─ Итог ─ */
+    if (result) {
+      const symbol = result.rank && result.suit ? `${result.rank}${result.suit}` : '?';
+      const cls = result.suit ? SUIT_CLASS[result.suit] : '';
+      html += `<div class="pipe-step" style="border-color:${result.error?'#f44336':'#4CAF50'}">
+        <div class="pipe-head" style="background:${result.error?'rgba(244,67,54,.15)':'rgba(76,175,80,.15)'}">
+          <span class="pipe-num">④</span>
+          <span class="pipe-name">РЕЗУЛЬТАТ</span>
+          <span class="pipe-res ${cls}" style="font-size:16px">${result.error?('✗ '+result.error):symbol+' '+result.name+' ('+result.confidence+'%)'}</span>
+        </div>
+      </div>`;
+    }
+
+    content.innerHTML = html;
+
+    /* ─ Канвасы ─ */
+    const canvasRow = document.createElement('div');
+    canvasRow.className = 'dbg-canvas-row';
+
+    const addCanvas=(label,drawFn,w=90,h=126)=>{
+      const wrap=document.createElement('div');
+      wrap.className='dbg-canvas-wrap';
+      const c=document.createElement('canvas');
+      c.width=200; c.height=280; c.style.width=w+'px'; c.style.height=h+'px';
+      drawFn(c);
+      const lbl=document.createElement('div');
+      lbl.className='dbg-canvas-label'; lbl.textContent=label;
+      wrap.appendChild(c); wrap.appendChild(lbl);
+      canvasRow.appendChild(wrap);
+    };
+
+    // ROI
+    addCanvas('ROI (захват)', c=>{
+      if(!roiCanvas) return;
+      const ctx=c.getContext('2d',{willReadFrequently:true});
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(roiCanvas,0,0,c.width,c.height);
+    });
+
+    // Norm
+    addCanvas('Нормал. 200×280', c=>{
+      if(!normData) return;
+      ImgProc.imageDataToCanvas(normData, c);
+    });
+
+    // Corner mask (binary)
+    addCanvas('Угол (бинар.)', c=>{
+      if(cornerMask && cornerW && cornerH)
+        ImgProc.binaryToCanvas(cornerMask, cornerW, cornerH, c);
+    });
+
+    // Template TL corner (best match)
+    addCanvas('Шаблон (угол TL)', c=>{
+      const best=pl.best;
+      if(!best) return;
+      const tmpl=this.recognizer.templates[best.id];
+      if(!tmpl) return;
+      const angles=getAngles();
+      const a=angles.includes(best.cornerAngle)?best.cornerAngle:angles[0];
+      const mask=tmpl.tlMasks[a];
+      if(mask) ImgProc.binaryToCanvas(mask, tmpl.cw, tmpl.ch, c);
+    });
+
+    content.appendChild(canvasRow);
+  }
+
+  showResult(card) {
+    const cls=SUIT_CLASS[card.suit]||'';
     document.getElementById('cardSymbol').textContent=`${card.rank}${card.suit}`;
-    document.getElementById('cardSymbol').className=suitInfo.class;
+    document.getElementById('cardSymbol').className=cls;
     document.getElementById('cardTitle').textContent=card.name;
-    document.getElementById('cardConfidence').textContent=`Уверенность: ${card.confidence}%`;
+    document.getElementById('cardConf').textContent=`Уверенность: ${card.confidence}%`;
     const box=document.getElementById('resultCard');
     box.classList.add('show');
     setTimeout(()=>box.classList.remove('show'),2500);
   }
- 
-  setStatus(text,type=''){
+
+  setStatus(text,type='') {
     const el=document.getElementById('statusBar');
     el.textContent=text; el.className=type;
   }
- 
-  log(text,type=''){
+
+  log(text,type='') {
     const box=document.getElementById('historyLog');
     const line=document.createElement('div');
-    line.className='log-line'+(type?(' log-'+type):'');
+    line.className='log-line'+(type?' log-'+type:'');
     line.textContent=new Date().toLocaleTimeString().slice(-8)+' '+text;
     box.insertBefore(line,box.firstChild);
-    while(box.children.length>12) box.removeChild(box.lastChild);
+    while(box.children.length>14) box.removeChild(box.lastChild);
+  }
+
+  /* ═══ НАСТРОЙКИ ═══ */
+  setupSettingsUI() {
+    const $=id=>document.getElementById(id);
+
+    const bind=(id,key,mul=1,check=false)=>{
+      const el=$(id);
+      if(check){ el.checked=!!S[key]; el.onchange=()=>{S[key]=el.checked;saveS();this.refreshSUI();}; }
+      else { el.value=Math.round(S[key]*mul); el.oninput=()=>{S[key]=Number(el.value)/mul;saveS();this.refreshSUI();}; }
+    };
+    bind('ui_minScore','minScore',100);
+    bind('ui_minMargin','minMargin',100);
+    bind('ui_adaptC','adaptiveC');
+    bind('ui_angles','anglesPreset');
+    bind('ui_stable','autoStable');
+    bind('ui_cnorm','cornerNormalize',1,true);
+
+    $('ui_adaptWin').value=S.adaptiveWindow;
+    $('ui_adaptWin').onchange=()=>{
+      let v=Number($('ui_adaptWin').value);
+      if(v%2===0) v++;
+      v=Math.max(7,Math.min(41,v));
+      S.adaptiveWindow=v; $('ui_adaptWin').value=v;
+      saveS(); this.refreshSUI();
+    };
+
+    $('ui_resetBtn').onclick=()=>{ S=structuredClone(DEFAULTS); saveS(); this.setupSettingsUI(); this.log('Настройки сброшены','ok'); };
+    $('ui_closeBtn').onclick=()=>{ $('settingsPanel').classList.remove('show'); document.getElementById('settingsBtn').classList.remove('on'); };
+
+    this.refreshSUI();
+  }
+
+  refreshSUI() {
+    const $=id=>document.getElementById(id);
+    $('ui_minScoreVal').textContent=Math.round(S.minScore*100)+'%';
+    $('ui_minMarginVal').textContent=Math.round(S.minMargin*100)+'%';
+    $('ui_adaptWinVal').textContent=S.adaptiveWindow;
+    $('ui_adaptCVal').textContent=S.adaptiveC;
+    $('ui_anglesVal').textContent=getAngles().join(',')+'°';
+    $('ui_cnormVal').textContent=S.cornerNormalize?'ON':'OFF';
+    $('ui_stableVal').textContent=S.autoStable+'×';
   }
 }
- 
-window.addEventListener('load',()=>new App());
+
+window.addEventListener('load', ()=>new App());
 </script>
 </body>
 </html>
