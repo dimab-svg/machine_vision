@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Card Recognizer v7 (improved perspective + pips)</title>
+  <title>Card Recognizer v7</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
     html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background:#000; }
-
+ 
     #container { position:relative; width:100vw; height:100vh; height:100dvh; }
     #video { width:100%; height:100%; object-fit:cover; }
     #canvas { display:none; }
-
+ 
     #topArea{ position:absolute; top:0; left:0; right:0; padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px; z-index:10; }
     #scanZone{
       width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
@@ -28,9 +28,12 @@
     #scanZone.active::before { color:#FFC107; content:'Сканирование...'; }
     #scanZone.error { border-color:#f44336; animation: shake 0.4s; }
     #scanZone.error::before { color:#f44336; content:'Не распознано'; }
-    @keyframes glow { 0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; } 50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; } }
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 16px #FFC107; }
+      50% { box-shadow: 0 0 0 9999px rgba(0,0,0,0.7), 0 0 28px #FFC107; }
+    }
     @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 75%{transform:translateX(5px);} }
-
+ 
     #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
     .ctrl-btn{
       width:40px; height:40px; border-radius:50%;
@@ -40,19 +43,19 @@
     }
     .ctrl-btn:active { transform:scale(0.9); }
     .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
-
+ 
     #resultCard{
       position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.9);
       background:rgba(255,255,255,0.98); border-radius:16px; padding:20px 30px;
       box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
-      opacity:0; transition:0.3s; z-index:100;
+      opacity:0; transition:0.3s; z-index:100; pointer-events:none;
     }
     #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
     #cardSymbol { font-size:72px; font-weight:bold; line-height:1; }
     #cardTitle { font-size:16px; color:#555; margin-top:8px; font-weight:500; }
     #cardConfidence { font-size:11px; color:#888; margin-top:4px; }
     .red{ color:#e53935; } .black{ color:#212121; }
-
+ 
     #statusBar{
       position:absolute; top:320px; left:50%; transform:translateX(-50%);
       background:rgba(0,0,0,0.85); color:white;
@@ -61,14 +64,7 @@
     }
     #statusBar.error { background: rgba(244,67,54,0.95); }
     #statusBar.ok { background: rgba(76,175,80,0.95); }
-
-    #hint{
-      position:absolute; bottom:150px; left:50%; transform:translateX(-50%);
-      background:rgba(255,255,255,0.95); color:#333;
-      padding:8px 16px; border-radius:20px; font-size:11px;
-      z-index:5; text-align:center; max-width:85%;
-    }
-
+ 
     #bottomArea{
       position:absolute; bottom:0; left:0; right:0;
       padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
@@ -83,7 +79,7 @@
     }
     .log-line{ margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .log-err{ color:#f44336; } .log-ok{ color:#4CAF50; } .log-warn{ color:#FFC107; }
-
+ 
     #actionButtons{ display:flex; gap:8px; width:100%; max-width:380px; }
     .action-btn{
       flex:1; background:linear-gradient(135deg,#667eea 0%, #764ba2 100%);
@@ -97,11 +93,13 @@
       box-shadow:0 4px 15px rgba(255,193,7,0.5);
     }
     .action-btn.auto.on { background:linear-gradient(135deg,#4CAF50 0%, #43A047 100%); }
-
+ 
     #settingsPanel{
       position:absolute; top:50%; right:10px; transform:translateY(-50%);
-      width:270px; background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
-      z-index:10; display:none; border:1px solid rgba(255,255,255,0.08);
+      width:270px;
+      background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
+      z-index:20; display:none;
+      border:1px solid rgba(255,255,255,0.08);
     }
     #settingsPanel.show{ display:block; }
     .settings-title{ color:#FFC107; font-size:10px; font-weight:bold; margin-bottom:8px; text-align:center; }
@@ -121,29 +119,43 @@
       border-radius:8px; padding:8px 0; font-size:11px; cursor:pointer;
     }
     .mini-btn:active{ transform:scale(0.98); }
-
+ 
+    /* DEBUG PANEL — фиксированное позиционирование с прокруткой */
     #debugPanel{
-      position:absolute; top:50%; left:10px; transform:translateY(-50%);
-      width:320px; background:rgba(0,0,0,0.92); border-radius:12px; padding:10px;
-      font-family:monospace; font-size:9px; color:#0f0;
-      display:none; z-index:10; border:1px solid rgba(255,255,255,0.08);
+      position:fixed; top:0; left:0; right:0; bottom:0;
+      background:rgba(0,0,0,0.96);
+      z-index:50; display:none; flex-direction:column;
+      overflow:hidden;
     }
-    #debugPanel.show{ display:block; }
-    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.08); }
+    #debugPanel.show{ display:flex; }
+    #debugHeader{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 14px; background:rgba(255,193,7,0.15);
+      border-bottom:1px solid rgba(255,255,255,0.1); flex-shrink:0;
+    }
+    #debugHeaderTitle{ color:#FFC107; font-weight:bold; font-size:13px; font-family:monospace; }
+    #debugCloseBtn{
+      width:36px; height:36px; border-radius:50%;
+      background:#f44336; border:none; color:white;
+      font-size:20px; font-weight:bold; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      flex-shrink:0;
+    }
+    #debugScroll{ flex:1; overflow-y:auto; padding:10px; }
+    #debugInfo{ font-family:monospace; font-size:10px; color:#0f0; }
+    .dbg-line{ margin:2px 0; padding-bottom:2px; border-bottom:1px solid rgba(255,255,255,0.07); }
     .dbg-title{ color:#FFC107; font-weight:bold; margin-bottom:6px; }
-    .dbg-subtitle{ color:#9cf; margin:6px 0 4px; font-weight:bold; }
-    .cand-line{ display:flex; justify-content:space-between; gap:10px; }
-    .cand-left{ color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:205px; }
-    .cand-right{ color:#0f0; white-space:nowrap; }
-    .dbg-canvases{ display:flex; gap:6px; margin-top:6px; }
+    .dbg-subtitle{ color:#9cf; margin:10px 0 4px; font-weight:bold; font-size:11px; }
+    .cand-line{ display:flex; justify-content:space-between; gap:6px; font-family:monospace; font-size:9px; margin:2px 0; }
+    .cand-left{ color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:0 0 130px; }
+    .cand-right{ color:#0f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .dbg-canvases{ display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
     .dbg-canvases canvas{
-      width:98px; height:137px;
+      width:90px; height:126px;
       background:#111; border:1px solid rgba(255,255,255,0.12); border-radius:6px;
     }
-    .close-debug {
-      position:absolute; top:8px; right:8px; background:#f44336; color:white;
-      border:none; width:28px; height:28px; border-radius:50%; font-size:16px; cursor:pointer;
-    }
+    .dbg-canvas-label{ color:#888; font-size:8px; text-align:center; margin-top:2px; font-family:monospace; }
+ 
     #loader{
       position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
       text-align:center; color:white; background:rgba(0,0,0,0.95);
@@ -164,7 +176,7 @@
 <div id="container">
   <video id="video" autoplay playsinline muted></video>
   <canvas id="canvas"></canvas>
-
+ 
   <div id="topArea">
     <div id="scanZone"></div>
     <div id="ctrlButtons">
@@ -173,16 +185,15 @@
       <div class="ctrl-btn" id="switchBtn" title="Камера">📷</div>
     </div>
   </div>
-
+ 
   <div id="resultCard">
     <div id="cardSymbol">?</div>
     <div id="cardTitle">Ожидание...</div>
     <div id="cardConfidence"></div>
   </div>
-
+ 
   <div id="statusBar">Наведите камеру на карту</div>
-  <div id="hint">v7: лучше работает при наклоне, расстоянии и частичной видимости (углы + пипы)</div>
-
+ 
   <div id="bottomArea">
     <div id="historyLog"></div>
     <div id="actionButtons">
@@ -190,10 +201,10 @@
       <button class="action-btn auto" id="autoBtn">🔄 Авто</button>
     </div>
   </div>
-
+ 
   <div id="settingsPanel">
-    <div class="settings-title">⚙️ НАСТРОЙКИ v7</div>
-    <!-- настройки оставлены почти те же, можно расширить позже -->
+    <div class="settings-title">⚙️ НАСТРОЙКИ</div>
+ 
     <div class="settings-item">
       <div class="settings-label"><span>Порог (minScore)</span><span class="settings-value" id="ui_minScoreVal"></span></div>
       <div class="settings-row"><input id="ui_minScore" type="range" min="50" max="95" step="1"></div>
@@ -203,44 +214,94 @@
       <div class="settings-row"><input id="ui_minMargin" type="range" min="0" max="15" step="1"></div>
     </div>
     <div class="settings-item">
+      <div class="settings-label"><span>Adaptive window</span><span class="settings-value" id="ui_adaptWinVal"></span></div>
+      <div class="settings-row">
+        <input id="ui_adaptWin" type="number" min="7" max="41" step="2">
+        <span style="color:#888;font-size:10px;">(нечёт.)</span>
+      </div>
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Adaptive C</span><span class="settings-value" id="ui_adaptCVal"></span></div>
+      <div class="settings-row"><input id="ui_adaptC" type="range" min="0" max="20" step="1"></div>
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Сдвиг (maxShift)</span><span class="settings-value" id="ui_maxShiftVal"></span></div>
+      <div class="settings-row"><input id="ui_maxShift" type="range" min="0" max="6" step="1"></div>
+    </div>
+    <div class="settings-item">
       <div class="settings-label"><span>Нормализация угла</span><span class="settings-value" id="ui_cornerNormVal"></span></div>
       <div class="settings-row">
         <input id="ui_cornerNorm" type="checkbox">
+        <span style="color:#888;font-size:10px;">автокроп "чернил"</span>
       </div>
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Sobel-рёбра</span><span class="settings-value" id="ui_sobelVal"></span></div>
+      <div class="settings-row">
+        <input id="ui_useSobel" type="checkbox">
+        <span style="color:#888;font-size:10px;">устойчив к яркости</span>
+      </div>
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Углы поворота</span><span class="settings-value" id="ui_anglesVal"></span></div>
+      <div class="settings-row"><input id="ui_angles" type="range" min="1" max="3" step="1"></div>
+    </div>
+    <div class="settings-item">
+      <div class="settings-label"><span>Стабильность (авто)</span><span class="settings-value" id="ui_stableVal"></span></div>
+      <div class="settings-row"><input id="ui_stable" type="range" min="1" max="3" step="1"></div>
     </div>
     <div class="settings-btns">
       <button class="mini-btn" id="ui_resetBtn">Сброс</button>
       <button class="mini-btn" id="ui_closeBtn">Закрыть</button>
     </div>
   </div>
-
+ 
+  <!-- DEBUG PANEL — полноэкранное overlay -->
   <div id="debugPanel">
-    <button class="close-debug" id="closeDebugBtn">✕</button>
-    <div class="dbg-title">🔬 DEBUG v7</div>
-    <div id="debugInfo"></div>
-    <div class="dbg-subtitle">Top кандидаты</div>
-    <div id="debugCandidates"></div>
-    <div class="dbg-subtitle">Кадры</div>
-    <div class="dbg-canvases">
-      <canvas id="dbgROI" width="200" height="280" title="ROI"></canvas>
-      <canvas id="dbgNorm" width="200" height="280" title="Norm"></canvas>
-      <canvas id="dbgBin" width="200" height="280" title="Binary corner"></canvas>
+    <div id="debugHeader">
+      <div id="debugHeaderTitle">🔬 DEBUG MODE</div>
+      <button id="debugCloseBtn" title="Закрыть отладку">✕</button>
+    </div>
+    <div id="debugScroll">
+      <div id="debugInfo"></div>
+      <div class="dbg-subtitle">Top кандидаты</div>
+      <div id="debugCandidates"></div>
+      <div class="dbg-subtitle">Кадры (ROI / Norm / Угол-бинар / Sobel)</div>
+      <div class="dbg-canvases">
+        <div>
+          <canvas id="dbgROI" width="200" height="280"></canvas>
+          <div class="dbg-canvas-label">ROI</div>
+        </div>
+        <div>
+          <canvas id="dbgNorm" width="200" height="280"></canvas>
+          <div class="dbg-canvas-label">Norm</div>
+        </div>
+        <div>
+          <canvas id="dbgBin" width="200" height="280"></canvas>
+          <div class="dbg-canvas-label">Corner bin</div>
+        </div>
+        <div>
+          <canvas id="dbgSobel" width="200" height="280"></canvas>
+          <div class="dbg-canvas-label">Sobel</div>
+        </div>
+      </div>
     </div>
   </div>
-
+ 
   <div id="loader">
     <div class="spin"></div>
     <div id="loaderText">Инициализация...</div>
     <div id="loaderSubtext">Загрузка шаблонов и запуск камеры</div>
   </div>
 </div>
-
+ 
 <script>
 /* ===== CONFIG ===== */
 const CONFIG = {
   norm: { width: 200, height: 280 },
   small: { width: 96, height: 134 },
-  corner: { wRatio: 0.38, hRatio: 0.38 },
+  sobelSmall: { width: 64, height: 90 },
+  corner: { wRatio: 0.35, hRatio: 0.35 },
   templatesDir: 'templates',
   templates: [
     { id:'7h',  file:'7h.jpg',  rank:'7',  suit:'♥', name:'7 Червей' },
@@ -254,35 +315,44 @@ const CONFIG = {
   ],
   video: { width: { ideal: 1920 }, height: { ideal: 1080 } }
 };
-
+ 
 const CARDS = {
   '♥': { class:'red',  color:'red' },
   '♦': { class:'red',  color:'red' },
   '♠': { class:'black',color:'black' },
   '♣': { class:'black',color:'black' }
 };
-
+ 
+/* Наборы угловых вариантов */
+const ANGLE_SETS = [
+  [0],                        // 1 — только прямо
+  [-12, 0, 12],               // 2 — небольшие наклоны
+  [-20, -10, 0, 10, 20]       // 3 — широкий диапазон
+];
+ 
 /* ===== SETTINGS ===== */
 const DEFAULT_SETTINGS = {
   minScore: 0.78,
-  minMargin: 0.045,
-  adaptiveWindow: 17,
-  adaptiveC: 6,
+  minMargin: 0.03,
+  adaptiveWindow: 15,
+  adaptiveC: 7,
   blur3x3: true,
-  maxShift: 3,
-  minStd: 12,
-
+  maxShift: 2,
+  minStd: 10,
+ 
   cornerNormalize: true,
-  cornerAngles: [-12, -6, 0, 6, 12],
-
-  wCorner: 0.52,
+  anglesPreset: 2,           // индекс в ANGLE_SETS
+ 
+  wCorner: 0.50,
   wFull: 0.28,
-  wSuit: 0.08,
-  wPips: 0.12,        // новый вес для подсчёта пипов
-
+  wSobel: 0.17,
+  wSuit: 0.05,
+ 
+  useSobel: true,
+ 
   autoStable: 2
 };
-
+ 
 const SETTINGS_KEY = 'cardrec_v7_settings';
 let SETTINGS = loadSettings();
 function loadSettings(){
@@ -293,334 +363,854 @@ function loadSettings(){
   } catch { return structuredClone(DEFAULT_SETTINGS); }
 }
 function saveSettings(){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(SETTINGS)); }
-
-/* ===== ImgProc — улучшенный ===== */
+function getAngles(){ return ANGLE_SETS[Math.max(0,Math.min(ANGLE_SETS.length-1,(SETTINGS.anglesPreset||2)-1))]; }
+ 
+/* ===== ImgProc ===== */
 class ImgProc {
+ 
   static toGray(imageData){
     const {data,width,height}=imageData;
     const gray=new Uint8ClampedArray(width*height);
-    for(let i=0,p=0;i<data.length;i+=4,p++){
+    for(let i=0,p=0;i<data.length;i+=4,p++)
       gray[p]=(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2])|0;
-    }
     return {gray,width,height};
   }
-
+ 
   static stdDev(gray){
-    const n=gray.length; let sum=0, sum2=0;
-    for(let i=0;i<n;i++){ const v=gray[i]; sum+=v; sum2+=v*v; }
-    const mean=sum/n;
-    const varr=Math.max(1e-9,(sum2/n)-mean*mean);
-    return Math.sqrt(varr);
+    const n=gray.length; let s=0,s2=0;
+    for(let i=0;i<n;i++){const v=gray[i];s+=v;s2+=v*v;}
+    const m=s/n; return Math.sqrt(Math.max(0,(s2/n)-m*m));
   }
-
-  static blur3x3(gray,w,h){ /* оставлен как был */ 
+ 
+  static blur3x3(gray,w,h){
     const out=new Uint8ClampedArray(gray.length);
-    const idx=(x,y)=>y*w+x;
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       let sum=0,c=0;
-      for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
-        const yy=y+dy, xx=x+dx;
-        if(yy>=0&&yy<h&&xx>=0&&xx<w){ sum+=gray[idx(xx,yy)]; c++; }
+      for(let dy=-1;dy<=1;dy++){
+        const yy=y+dy; if(yy<0||yy>=h) continue;
+        for(let dx=-1;dx<=1;dx++){
+          const xx=x+dx; if(xx<0||xx>=w) continue;
+          sum+=gray[yy*w+xx]; c++;
+        }
       }
-      out[idx(x,y)]=(sum/c)|0;
+      out[y*w+x]=(sum/c)|0;
     }
     return out;
   }
-
-  static adaptiveThreshold(gray,w,h,winSize=17,C=6){ /* оставлен как был, но winSize по умолчанию больше */ 
-    // ... (полный код из v6, для краткости опущен в этом ответе — возьми из оригинала)
-    // Важно: используй тот же код adaptiveThreshold, что был в v6
+ 
+  /* Sobel magnitude → нормированный [0,255] */
+  static sobel(gray,w,h){
+    const Gx=new Int16Array(w*h), Gy=new Int16Array(w*h);
+    for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+      const tl=gray[(y-1)*w+(x-1)], tc=gray[(y-1)*w+x], tr=gray[(y-1)*w+(x+1)];
+      const ml=gray[y*w+(x-1)],                          mr=gray[y*w+(x+1)];
+      const bl=gray[(y+1)*w+(x-1)], bc=gray[(y+1)*w+x], br=gray[(y+1)*w+(x+1)];
+      Gx[y*w+x]=-tl-2*ml-bl+tr+2*mr+br;
+      Gy[y*w+x]=-tl-2*tc-tr+bl+2*bc+br;
+    }
+    // find max magnitude
+    let maxMag=1;
+    const mag=new Float32Array(w*h);
+    for(let i=0;i<w*h;i++){
+      const m=Math.sqrt(Gx[i]*Gx[i]+Gy[i]*Gy[i]);
+      mag[i]=m; if(m>maxMag) maxMag=m;
+    }
+    // normalize to 0-255
+    const out=new Uint8ClampedArray(w*h);
+    const scale=255/maxMag;
+    for(let i=0;i<w*h;i++) out[i]=(mag[i]*scale)|0;
+    return out;
+  }
+ 
+  static adaptiveThreshold(gray,w,h,winSize=15,C=7){
     const half=(winSize/2)|0;
-    const iw=w+1, ih=h+1;
-    const integral=new Uint32Array(iw*ih);
-    // ... (полная реализация — скопируй из твоего оригинального файла)
-    // Для экономии места предполагаю, что ты вставишь оригинальную функцию adaptiveThreshold сюда
-  }
-
-  static extractCorner(normData, which='tl'){ /* как было */ 
-    // ... оригинальная реализация
-  }
-
-  static normalizeCorner(cornerImageData, inkThr=230, pad=4){ /* чуть агрессивнее */ 
-    // оригинальная + pad увеличен
-  }
-
-  static rotateImageData(imageData, degrees){ /* как было */ }
-
-  static matchBinary(maskA,maskB,w,h,maxShift=3){ /* как было */ }
-
-  static arrayStats(a){ /* как было */ }
-  static ncc01(a,aStats,b,bStats){ /* как было */ }
-
-  static downsampleToGray(imageData,newW,newH){ /* как было */ }
-
-  static redRatio(normData){ /* как было */ }
-
-  // === НОВОЕ: поиск приблизительных углов карты ===
-  static detectCardCorners(gray, w, h) {
-    const thr = 210; // светлые области карты
-    const points = { tl: null, tr: null, bl: null, br: null };
-
-    // TL
-    for (let y = 0; y < h*0.45 && !points.tl; y++)
-      for (let x = 0; x < w*0.45; x++)
-        if (gray[y*w + x] > thr) { points.tl = {x, y}; break; }
-
-    // TR
-    for (let y = 0; y < h*0.45 && !points.tr; y++)
-      for (let x = w-1; x > w*0.55; x--)
-        if (gray[y*w + x] > thr) { points.tr = {x, y}; break; }
-
-    // BL
-    for (let y = h-1; y > h*0.55 && !points.bl; y--)
-      for (let x = 0; x < w*0.45; x++)
-        if (gray[y*w + x] > thr) { points.bl = {x, y}; break; }
-
-    // BR
-    for (let y = h-1; y > h*0.55 && !points.br; y--)
-      for (let x = w-1; x > w*0.55; x--)
-        if (gray[y*w + x] > thr) { points.br = {x, y}; break; }
-
-    if (!points.tl || !points.tr || !points.bl || !points.br) return null;
-    return points;
-  }
-
-  // === НОВОЕ: упрощённая коррекция (пока affine-like через drawImage с padding) ===
-  static correctPerspective(imageData, corners) {
-    if (!corners) return imageData;
-
-    const srcCanvas = document.createElement('canvas');
-    srcCanvas.width = imageData.width;
-    srcCanvas.height = imageData.height;
-    srcCanvas.getContext('2d').putImageData(imageData, 0, 0);
-
-    const dstCanvas = document.createElement('canvas');
-    dstCanvas.width = CONFIG.norm.width * 1.15 | 0;
-    dstCanvas.height = CONFIG.norm.height * 1.15 | 0;
-    const ctx = dstCanvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, dstCanvas.width, dstCanvas.height);
-
-    // Простая растяжка (можно улучшить позже)
-    ctx.drawImage(srcCanvas, 0, 0, dstCanvas.width, dstCanvas.height);
-
-    return ctx.getImageData(0, 0, dstCanvas.width, dstCanvas.height);
-  }
-
-  // === НОВОЕ: подсчёт пипов в центре ===
-  static countPips(normData, suitColor) {
-    const {gray, width: w, height: h} = ImgProc.toGray(normData);
-    const cx = w >> 1, cy = h >> 1;
-    const win = 88;
-    let darkCount = 0;
-
-    for (let y = Math.max(0, cy - win); y < Math.min(h, cy + win); y += 5) {
-      for (let x = Math.max(0, cx - win); x < Math.min(w, cx + win); x += 5) {
-        if (gray[y * w + x] < 170) darkCount++;
+    const iw=w+1;
+    const integral=new Uint32Array(iw*(h+1));
+    for(let y=1;y<=h;y++){
+      let rowSum=0;
+      for(let x=1;x<=w;x++){
+        rowSum+=gray[(y-1)*w+(x-1)];
+        integral[y*iw+x]=integral[(y-1)*iw+x]+rowSum;
       }
     }
-    const estimated = Math.round(darkCount / 18); // грубая калибровка под 7-10
-    return Math.max(0, Math.min(12, estimated));
+    const mask=new Uint8Array(w*h);
+    for(let y=0;y<h;y++){
+      const y1=Math.max(0,y-half), y2=Math.min(h-1,y+half);
+      for(let x=0;x<w;x++){
+        const x1=Math.max(0,x-half), x2=Math.min(w-1,x+half);
+        const area=(x2-x1+1)*(y2-y1+1);
+        const mean=(integral[(y2+1)*iw+(x2+1)]-integral[(y2+1)*iw+x1]-integral[y1*iw+(x2+1)]+integral[y1*iw+x1])/area;
+        mask[y*w+x]=(gray[y*w+x]<(mean-C))?1:0;
+      }
+    }
+    return mask;
   }
-
-  static drawBinaryCornerToCanvas(mask, w, h, canvas){ /* как было */ }
+ 
+  static extractCorner(normData, which='tl'){
+    const w=normData.width, h=normData.height;
+    const cw=Math.max(1,Math.floor(w*CONFIG.corner.wRatio));
+    const ch=Math.max(1,Math.floor(h*CONFIG.corner.hRatio));
+ 
+    const src=document.createElement('canvas');
+    src.width=w; src.height=h;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(normData,0,0);
+ 
+    const c=document.createElement('canvas'); c.width=cw; c.height=ch;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+ 
+    if(which==='tl'){
+      ctx.drawImage(src,0,0,cw,ch,0,0,cw,ch);
+    } else {
+      // BR — rotated 180 → same orientation as TL
+      ctx.save();
+      ctx.translate(cw/2,ch/2); ctx.rotate(Math.PI); ctx.translate(-cw/2,-ch/2);
+      ctx.drawImage(src,w-cw,h-ch,cw,ch,0,0,cw,ch);
+      ctx.restore();
+    }
+    return ctx.getImageData(0,0,cw,ch);
+  }
+ 
+  static normalizeCorner(cornerImageData, inkThr=235, pad=3){
+    const {gray,width:w,height:h}=ImgProc.toGray(cornerImageData);
+    let minX=w, minY=h, maxX=-1, maxY=-1;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      if(gray[y*w+x]<inkThr){
+        if(x<minX)minX=x; if(y<minY)minY=y;
+        if(x>maxX)maxX=x; if(y>maxY)maxY=y;
+      }
+    }
+    if(maxX<0) return {imageData:cornerImageData,debug:'no-ink'};
+    minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
+    maxX=Math.min(w-1,maxX+pad); maxY=Math.min(h-1,maxY+pad);
+    const cw=maxX-minX+1, ch=maxY-minY+1;
+    if(cw<8||ch<8) return {imageData:cornerImageData,debug:'bbox-small'};
+ 
+    const src=document.createElement('canvas');
+    src.width=w; src.height=h;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(cornerImageData,0,0);
+    const dst=document.createElement('canvas'); dst.width=w; dst.height=h;
+    const ctx=dst.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src,minX,minY,cw,ch,0,0,w,h);
+    return {imageData:ctx.getImageData(0,0,w,h),debug:`${minX},${minY} ${cw}x${ch}`};
+  }
+ 
+  static rotateImageData(imageData, degrees){
+    if(degrees===0) return imageData;
+    const rad=degrees*Math.PI/180;
+    const w=imageData.width, h=imageData.height;
+    const src=document.createElement('canvas'); src.width=w; src.height=h;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+    const dst=document.createElement('canvas'); dst.width=w; dst.height=h;
+    const ctx=dst.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+    ctx.translate(w/2,h/2); ctx.rotate(rad); ctx.translate(-w/2,-h/2);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src,0,0);
+    ctx.setTransform(1,0,0,1,0,0);
+    return ctx.getImageData(0,0,w,h);
+  }
+ 
+  static matchBinary(maskA,maskB,w,h,maxShift=2){
+    let best=-1;
+    for(let dy=-maxShift;dy<=maxShift;dy++) for(let dx=-maxShift;dx<=maxShift;dx++){
+      let xor=0,total=0;
+      for(let y=0;y<h;y++){
+        const yy=y+dy; if(yy<0||yy>=h) continue;
+        const rowA=y*w, rowB=yy*w;
+        for(let x=0;x<w;x++){
+          const xx=x+dx; if(xx<0||xx>=w) continue;
+          xor+=(maskA[rowA+x]^maskB[rowB+xx]); total++;
+        }
+      }
+      if(!total) continue;
+      const s=1-(xor/total);
+      if(s>best) best=s;
+    }
+    return best;
+  }
+ 
+  static arrayStats(a){
+    const n=a.length; let s=0,s2=0;
+    for(let i=0;i<n;i++){const v=a[i];s+=v;s2+=v*v;}
+    const m=s/n, v=Math.max(1e-9,(s2/n)-m*m);
+    return {n,mean:m,std:Math.sqrt(v)};
+  }
+ 
+  static ncc01(a,aS,b,bS){
+    const n=aS.n; let sum=0;
+    for(let i=0;i<n;i++) sum+=a[i]*b[i];
+    const numer=sum-n*aS.mean*bS.mean;
+    const denom=(n*aS.std*bS.std)||1e-9;
+    return Math.max(0,Math.min(1,(numer/denom+1)/2));
+  }
+ 
+  /* NCC между Sobel-картами (обе уже серые 0-255) */
+  static nccSobel(a,b,n){
+    let sA=0,sB=0,sA2=0,sB2=0,sAB=0;
+    for(let i=0;i<n;i++){sA+=a[i];sB+=b[i];sA2+=a[i]*a[i];sB2+=b[i]*b[i];sAB+=a[i]*b[i];}
+    const mA=sA/n, mB=sB/n;
+    const stdA=Math.sqrt(Math.max(0,(sA2/n)-mA*mA));
+    const stdB=Math.sqrt(Math.max(0,(sB2/n)-mB*mB));
+    const numer=sAB-n*mA*mB;
+    const denom=(n*stdA*stdB)||1e-9;
+    return Math.max(0,Math.min(1,(numer/denom+1)/2));
+  }
+ 
+  static downsampleToGray(imageData,newW,newH){
+    const src=document.createElement('canvas');
+    src.width=imageData.width; src.height=imageData.height;
+    src.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+    const c=document.createElement('canvas'); c.width=newW; c.height=newH;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(src,0,0,imageData.width,imageData.height,0,0,newW,newH);
+    return ImgProc.toGray(ctx.getImageData(0,0,newW,newH)).gray;
+  }
+ 
+  /* Цвет масти — проверяем TL И BR, берём максимум */
+  static redRatioDual(normData){
+    const check=(corner)=>{
+      const d=corner.data; let red=0,total=0;
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i],g=d[i+1],b=d[i+2];
+        const br=(r+g+b)/3;
+        if(br<40||br>245) continue;
+        if(r>g+18&&r>b+18) red++;
+        total++;
+      }
+      return total?(red/total):0;
+    };
+    const rTL=check(ImgProc.extractCorner(normData,'tl'));
+    const rBR=check(ImgProc.extractCorner(normData,'br'));
+    return Math.max(rTL,rBR);
+  }
+ 
+  static drawBinaryCornerToCanvas(mask,w,h,canvas){
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const img=ctx.createImageData(w,h); const d=img.data;
+    for(let i=0,p=0;i<d.length;i+=4,p++){
+      const v=mask[p]?0:255; d[i]=d[i+1]=d[i+2]=v; d[i+3]=255;
+    }
+    const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
+    tmp.getContext('2d',{willReadFrequently:true}).putImageData(img,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
+  }
+ 
+  static drawGrayToCanvas(gray,w,h,canvas){
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const img=ctx.createImageData(w,h); const d=img.data;
+    for(let i=0,p=0;i<d.length;i+=4,p++){
+      d[i]=d[i+1]=d[i+2]=gray[p]; d[i+3]=255;
+    }
+    const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
+    tmp.getContext('2d',{willReadFrequently:true}).putImageData(img,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
+  }
 }
-
+ 
 /* ===== TemplateLoader ===== */
 class TemplateLoader {
-  static async loadImage(url){ /* как было */ }
-
-  static drawToNormCanvas(img){ /* как было */ }
-
-  static preprocessTemplate(normData, suit) {
-    const fullSmall = ImgProc.downsampleToGray(normData, CONFIG.small.width, CONFIG.small.height);
-    const fullStats = ImgProc.arrayStats(fullSmall);
-
-    const tl = ImgProc.extractCorner(normData,'tl');
-    const br = ImgProc.extractCorner(normData,'br');
-
-    const normalizeCornerIf = (corner) => SETTINGS.cornerNormalize ? ImgProc.normalizeCorner(corner).imageData : corner;
-    const tlN = normalizeCornerIf(tl);
-    const brN = normalizeCornerIf(br);
-
-    const buildMask = (cornerImageData, angleDeg) => {
-      const imgRot = ImgProc.rotateImageData(cornerImageData, angleDeg);
-      let {gray,width:w,height:h} = ImgProc.toGray(imgRot);
-      if (SETTINGS.blur3x3) gray = ImgProc.blur3x3(gray,w,h);
-      const mask = ImgProc.adaptiveThreshold(gray,w,h,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
+ 
+  static async loadImage(url){
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>resolve(img);
+      img.onerror=()=>reject(new Error('Не удалось загрузить: '+url));
+      img.src=url;
+    });
+  }
+ 
+  static drawToNormCanvas(img){
+    const c=document.createElement('canvas');
+    c.width=CONFIG.norm.width; c.height=CONFIG.norm.height;
+    const ctx=c.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
+    const scale=Math.min(c.width/img.naturalWidth,c.height/img.naturalHeight);
+    const dw=img.naturalWidth*scale, dh=img.naturalHeight*scale;
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,(c.width-dw)/2,(c.height-dh)/2,dw,dh);
+    return c;
+  }
+ 
+  static buildCornerData(normData){
+    const angles=getAngles();
+    const tl=ImgProc.extractCorner(normData,'tl');
+    const br=ImgProc.extractCorner(normData,'br');
+ 
+    const tlN=SETTINGS.cornerNormalize?ImgProc.normalizeCorner(tl).imageData:tl;
+    const brN=SETTINGS.cornerNormalize?ImgProc.normalizeCorner(br).imageData:br;
+ 
+    const buildMask=(cornerImageData,angleDeg)=>{
+      const imgRot=ImgProc.rotateImageData(cornerImageData,angleDeg);
+      let {gray,width:w,height:h}=ImgProc.toGray(imgRot);
+      if(SETTINGS.blur3x3) gray=ImgProc.blur3x3(gray,w,h);
+      const mask=ImgProc.adaptiveThreshold(gray,w,h,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
       return {mask,w,h};
     };
-
-    const tlMasks = {}, brMasks = {};
-    let cw=0, ch=0;
-    for (const a of SETTINGS.cornerAngles) {
-      const m1 = buildMask(tlN, a);
-      const m2 = buildMask(brN, a);
-      tlMasks[a] = m1.mask; brMasks[a] = m2.mask;
-      cw = m1.w; ch = m1.h;
+ 
+    const tlMasks={}, brMasks={};
+    let cw=0,ch=0;
+    for(const a of angles){
+      const m1=buildMask(tlN,a), m2=buildMask(brN,a);
+      tlMasks[a]=m1.mask; brMasks[a]=m2.mask;
+      cw=m1.w; ch=m1.h;
     }
-
-    const pipCount = ImgProc.countPips(normData, CARDS[suit]?.color || 'black');
-
+    return {tlMasks,brMasks,cornerW:cw,cornerH:ch};
+  }
+ 
+  static buildSobelData(normData){
+    const sw=CONFIG.sobelSmall.width, sh=CONFIG.sobelSmall.height;
+    const small=ImgProc.downsampleToGray(normData,sw,sh);
+    // blur before sobel to reduce noise
+    const blurred=ImgProc.blur3x3(small,sw,sh);
+    const sobel=ImgProc.sobel(blurred,sw,sh);
+    return {sobel,w:sw,h:sh,n:sw*sh};
+  }
+ 
+  static preprocessTemplate(normData,suit){
+    const fullSmall=ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
+    const fullStats=ImgProc.arrayStats(fullSmall);
+    const cornerData=this.buildCornerData(normData);
+    const sobelData=this.buildSobelData(normData);
     return {
-      fullSmall, fullStats,
-      cornerW: cw, cornerH: ch,
-      tlMasks, brMasks,
-      pipCount,
-      suitColor: CARDS[suit]?.color || 'black'
+      fullSmall,fullStats,
+      ...cornerData,
+      sobelData,
+      suitColor:(CARDS[suit]?.color||'black')
     };
   }
-
-  static async loadAllTemplates(){ /* как было, но вызывает новый preprocess */ 
-    // ... (скопируй оригинал и замени preprocessTemplate на новый)
+ 
+  static async loadAllTemplates(){
+    const out={};
+    for(const card of CONFIG.templates){
+      const url=`${CONFIG.templatesDir}/${card.file}`;
+      const img=await this.loadImage(url);
+      const normCanvas=this.drawToNormCanvas(img);
+      const ctx=normCanvas.getContext('2d',{willReadFrequently:true});
+      const normData=ctx.getImageData(0,0,CONFIG.norm.width,CONFIG.norm.height);
+      const prep=this.preprocessTemplate(normData,card.suit);
+      out[card.id]={...card,url,normCanvas,normData,...prep};
+    }
+    return out;
   }
 }
-
+ 
 /* ===== CardRecognizer ===== */
 class CardRecognizer {
   constructor(){ this.templates={}; this.ready=false; }
-
-  async loadTemplates(){ /* как было */ }
-
-  preprocessInput(normData){
-    const {gray:fullGray} = ImgProc.toGray(normData);
-    const std = ImgProc.stdDev(fullGray);
-    const fullSmall = ImgProc.downsampleToGray(normData, CONFIG.small.width, CONFIG.small.height);
-    const fullStats = ImgProc.arrayStats(fullSmall);
-
-    const tl = ImgProc.extractCorner(normData,'tl');
-    const br = ImgProc.extractCorner(normData,'br');
-
-    const normalizeCornerIf = (c) => SETTINGS.cornerNormalize ? ImgProc.normalizeCorner(c).imageData : c;
-    const tlN = normalizeCornerIf(tl);
-    const brN = normalizeCornerIf(br);
-
-    const buildMask = (cornerImageData, angleDeg) => { /* как в preprocessTemplate */ };
-
-    const tlMasks = {}, brMasks = {};
-    let cw=0,ch=0;
-    for (const a of SETTINGS.cornerAngles) {
-      const m1 = buildMask(tlN, a);
-      const m2 = buildMask(brN, a);
-      tlMasks[a] = m1.mask; brMasks[a] = m2.mask;
-      cw = m1.w; ch = m1.h;
-    }
-
-    const redRatio = ImgProc.redRatio(normData);
-    const suitHint = (redRatio > 0.08) ? 'red' : 'black';
-    const pipCount = ImgProc.countPips(normData, suitHint === 'red' ? 'red' : 'black');
-
-    return { std, fullSmall, fullStats, cornerW:cw, cornerH:ch, tlMasks, brMasks, redRatio, suitHint, pipCount };
+ 
+  async loadTemplates(){
+    this.templates=await TemplateLoader.loadAllTemplates();
+    const keys=Object.keys(this.templates);
+    this.ready=keys.length>0;
+    return {success:this.ready,loaded:keys.length,total:CONFIG.templates.length};
   }
-
-  scoreCornerDual(prep, tmpl){ /* как было */ }
-
+ 
+  preprocessInput(normData){
+    const {gray:fullGray}=ImgProc.toGray(normData);
+    const std=ImgProc.stdDev(fullGray);
+ 
+    const fullSmall=ImgProc.downsampleToGray(normData,CONFIG.small.width,CONFIG.small.height);
+    const fullStats=ImgProc.arrayStats(fullSmall);
+ 
+    // Corner data
+    const angles=getAngles();
+    const tl=ImgProc.extractCorner(normData,'tl');
+    const br=ImgProc.extractCorner(normData,'br');
+    const dbgTL={}, dbgBR={};
+ 
+    const tlN=SETTINGS.cornerNormalize?(()=>{const r=ImgProc.normalizeCorner(tl);dbgTL.debug=r.debug;return r.imageData;})():tl;
+    const brN=SETTINGS.cornerNormalize?(()=>{const r=ImgProc.normalizeCorner(br);dbgBR.debug=r.debug;return r.imageData;})():br;
+ 
+    const buildMask=(cornerImageData,angleDeg)=>{
+      const imgRot=ImgProc.rotateImageData(cornerImageData,angleDeg);
+      let {gray,width:w,height:h}=ImgProc.toGray(imgRot);
+      if(SETTINGS.blur3x3) gray=ImgProc.blur3x3(gray,w,h);
+      const mask=ImgProc.adaptiveThreshold(gray,w,h,SETTINGS.adaptiveWindow,SETTINGS.adaptiveC);
+      return {mask,w,h};
+    };
+ 
+    const tlMasks={},brMasks={};
+    let cw=0,ch=0;
+    for(const a of angles){
+      const m1=buildMask(tlN,a), m2=buildMask(brN,a);
+      tlMasks[a]=m1.mask; brMasks[a]=m2.mask;
+      cw=m1.w; ch=m1.h;
+    }
+ 
+    // Sobel
+    const sobelData=TemplateLoader.buildSobelData(normData);
+ 
+    // Suit hint — dual corner
+    const redRatio=ImgProc.redRatioDual(normData);
+    const suitHint=redRatio>0.07?'red':'black';
+ 
+    return {
+      std, fullSmall, fullStats,
+      cornerW:cw, cornerH:ch,
+      tlMasks, brMasks,
+      sobelData,
+      redRatio, suitHint,
+      dbgTL, dbgBR,
+      angles
+    };
+  }
+ 
+  scoreCornerDual(prep, tmpl){
+    let best=-1, bestMeta={angle:0,which:'tl'};
+    for(const a of prep.angles){
+      const s1=ImgProc.matchBinary(prep.tlMasks[a],tmpl.tlMasks[a],tmpl.cornerW,tmpl.cornerH,SETTINGS.maxShift);
+      const s2=ImgProc.matchBinary(prep.brMasks[a],tmpl.brMasks[a],tmpl.cornerW,tmpl.cornerH,SETTINGS.maxShift);
+      if(s1>best){best=s1;bestMeta={angle:a,which:'tl'};}
+      if(s2>best){best=s2;bestMeta={angle:a,which:'br'};}
+    }
+    return {score:best,meta:bestMeta};
+  }
+ 
   async recognize(normData){
-    if (!this.ready) return { error:'Шаблоны не готовы', candidates:[] };
-
-    let prep = this.preprocessInput(normData);
-    const corners = ImgProc.detectCardCorners(ImgProc.toGray(normData).gray, normData.width, normData.height);
-    let corrected = normData;
-    if (corners) corrected = ImgProc.correctPerspective(normData, corners);
-
-    // перезапускаем preprocess на corrected (если удалось)
-    if (corners) prep = this.preprocessInput(corrected);
-
-    const candidates = [];
-    for (const [id, t] of Object.entries(this.templates)) {
-      const cornerRes = this.scoreCornerDual(prep, t);
-      const full = ImgProc.ncc01(prep.fullSmall, prep.fullStats, t.fullSmall, t.fullStats);
-      const suit = (t.suitColor === prep.suitHint) ? 1.0 : 0.6;
-
-      const pipScore = t.pipCount ? Math.max(0, 1 - Math.abs(t.pipCount - prep.pipCount) / 8) : 0.5;
-
-      const total = (
-        SETTINGS.wCorner * cornerRes.score +
-        SETTINGS.wFull * full +
-        SETTINGS.wSuit * suit +
-        SETTINGS.wPips * pipScore
-      ) / (SETTINGS.wCorner + SETTINGS.wFull + SETTINGS.wSuit + SETTINGS.wPips);
-
+    const debug={};
+    if(!this.ready) return {error:'Шаблоны не готовы',debug,candidates:[]};
+ 
+    const prep=this.preprocessInput(normData);
+    debug.std=prep.std.toFixed(1);
+    debug.redRatio=(prep.redRatio*100).toFixed(1)+'%';
+    debug.suitHint=prep.suitHint;
+    debug.angles=prep.angles.join(',')+'°';
+    debug.cornerNormTL=prep.dbgTL.debug||'';
+    debug.cornerNormBR=prep.dbgBR.debug||'';
+ 
+    if(prep.std<SETTINGS.minStd)
+      return {error:`Мало деталей (контраст ${debug.std})`,debug,candidates:[],prep};
+ 
+    const sumW=SETTINGS.wCorner+SETTINGS.wFull+SETTINGS.wSobel+SETTINGS.wSuit;
+ 
+    const candidates=[];
+    for(const [id,t] of Object.entries(this.templates)){
+      const cornerRes=this.scoreCornerDual(prep,t);
+      const full=ImgProc.ncc01(prep.fullSmall,prep.fullStats,t.fullSmall,t.fullStats);
+ 
+      let sobelScore=0;
+      if(SETTINGS.useSobel && prep.sobelData && t.sobelData){
+        sobelScore=ImgProc.nccSobel(prep.sobelData.sobel,t.sobelData.sobel,prep.sobelData.n);
+      }
+ 
+      const suit=(t.suitColor===prep.suitHint)?1.0:0.55;
+ 
+      const total=(
+        SETTINGS.wCorner*cornerRes.score +
+        SETTINGS.wFull*full +
+        SETTINGS.wSobel*sobelScore +
+        SETTINGS.wSuit*suit
+      )/(sumW||1);
+ 
       candidates.push({
-        id, name:t.name, rank:t.rank, suit:t.suit,
-        total, corner: cornerRes.score, full, suitPrior: suit, pipScore, pipCount: prep.pipCount
+        id,name:t.name,rank:t.rank,suit:t.suit,
+        total,corner:cornerRes.score,
+        cornerWhich:cornerRes.meta.which,cornerAngle:cornerRes.meta.angle,
+        full,sobelScore,suitPrior:suit
       });
     }
-
-    candidates.sort((a,b)=>b.total - a.total);
-    const best = candidates[0];
-    const second = candidates[1];
-
-    if (!best || best.total < SETTINGS.minScore) 
-      return { error: `Слабое совпадение (${(best?.total*100||0).toFixed(1)}%)`, candidates, prep };
-
-    const margin = best.total - (second?.total || 0);
-    if (margin < SETTINGS.minMargin) 
-      return { error: `Неуверенно (разрыв ${(margin*100).toFixed(1)}%)`, candidates, prep };
-
+ 
+    candidates.sort((a,b)=>b.total-a.total);
+    const best=candidates[0], second=candidates[1];
+ 
+    debug.best=best?best.name:'N/A';
+    debug.bestScore=best?(best.total*100).toFixed(1)+'%':'N/A';
+    debug.bestParts=best?
+      `C:${(best.corner*100).toFixed(1)}(${best.cornerWhich}@${best.cornerAngle}°) F:${(best.full*100).toFixed(1)} S:${(best.sobelScore*100).toFixed(1)}`:
+      'N/A';
+    debug.second=second?second.name:'N/A';
+    debug.secondScore=second?(second.total*100).toFixed(1)+'%':'N/A';
+    debug.margin=(best&&second)?((best.total-second.total)*100).toFixed(1)+'%':'N/A';
+ 
+    if(!best) return {error:'Нет кандидатов',debug,candidates,prep};
+ 
+    if(best.total<SETTINGS.minScore)
+      return {error:`Слабое совпадение (${(best.total*100).toFixed(1)}%)`,debug,candidates,prep};
+ 
+    const margin=best.total-(second?.total||0);
+    if(margin<SETTINGS.minMargin)
+      return {error:`Неуверенно (разрыв ${(margin*100).toFixed(1)}%)`,debug,candidates,prep};
+ 
     return {
-      rank: best.rank,
-      suit: best.suit,
-      name: best.name,
-      confidence: Math.round(best.total*100),
-      debug: { best: best.name, bestScore: (best.total*100).toFixed(1)+'%', pipCount: best.pipCount },
-      candidates, prep
+      rank:best.rank,suit:best.suit,name:best.name,
+      confidence:Math.round(best.total*100),
+      debug,candidates,prep
     };
   }
 }
-
-/* ===== App — с кнопкой закрытия debug ===== */
+ 
+/* ===== App ===== */
 class App {
   constructor(){
-    this.video = document.getElementById('video');
-    this.loader = document.getElementById('loader');
-    this.recognizer = new CardRecognizer();
-    this.facingMode = 'environment';
-    this.debugMode = false;
-    this.settingsOpen = false;
-    this.autoMode = false;
-    this.autoTimer = null;
-    this.isRecognizing = false;
-    this.lastStableId = null;
-    this.stableCount = 0;
-
-    this.roiCanvas = document.createElement('canvas');
-    this.roiCanvas.width = 720; this.roiCanvas.height = 1008;
-    this.roiCtx = this.roiCanvas.getContext('2d', {willReadFrequently:true});
-
-    this.normCanvas = document.createElement('canvas');
-    this.normCanvas.width = CONFIG.norm.width;
-    this.normCanvas.height = CONFIG.norm.height;
-    this.normCtx = this.normCanvas.getContext('2d', {willReadFrequently:true});
-
+    this.video=document.getElementById('video');
+    this.loader=document.getElementById('loader');
+    this.recognizer=new CardRecognizer();
+    this.stream=null;
+    this.facingMode='environment';
+ 
+    this.debugMode=false;
+    this.settingsOpen=false;
+    this.autoMode=false;
+    this.autoTimer=null;
+    this.isRecognizing=false;
+    this.lastStableId=null;
+    this.stableCount=0;
+ 
+    // Большой ROI canvas — сохраняет детали при дальнем расстоянии
+    this.roiCanvas=document.createElement('canvas');
+    this.roiCanvas.width=720; this.roiCanvas.height=1008;
+    this.roiCtx=this.roiCanvas.getContext('2d',{willReadFrequently:true});
+ 
+    this.normCanvas=document.createElement('canvas');
+    this.normCanvas.width=CONFIG.norm.width; this.normCanvas.height=CONFIG.norm.height;
+    this.normCtx=this.normCanvas.getContext('2d',{willReadFrequently:true});
+ 
     this.init();
   }
-
-  async init(){ /* почти как было, но с v7 */ 
-    // ... (загрузка шаблонов, камера, setupControls, setupSettingsUI)
-    // В setupControls добавь обработчик для closeDebugBtn
+ 
+  showOverlayLoader(text,sub=''){
+    document.getElementById('loader').style.display='block';
+    document.getElementById('loaderText').textContent=text||'Загрузка...';
+    document.getElementById('loaderSubtext').textContent=sub||'';
   }
-
+  hideOverlayLoader(){ document.getElementById('loader').style.display='none'; }
+ 
+  async init(){
+    try{
+      this.setStatus('Загрузка шаблонов...');
+      this.showOverlayLoader('Инициализация...','Загрузка шаблонов и запуск камеры');
+      const res=await this.recognizer.loadTemplates();
+      if(!res.success) throw new Error('Не удалось загрузить шаблоны');
+      this.setStatus('Запуск камеры...');
+      await this.startCamera();
+      this.setupControls();
+      this.setupSettingsUI();
+      this.hideOverlayLoader();
+      this.setStatus('Наведите камеру на карту');
+      this.log(`✓ Шаблонов: ${res.loaded}/${res.total}`,'ok');
+    } catch(e){
+      this.loader.innerHTML=`
+        <div style="color:#f44336;font-size:16px;font-weight:bold;">Ошибка!</div>
+        <div style="font-size:12px;margin-top:10px;">${e.message}</div>
+        <div style="font-size:10px;margin-top:10px;color:#888;">Откройте через http(s). Проверьте templates/*.jpg</div>
+      `;
+      console.error(e);
+    }
+  }
+ 
+  async startCamera(){
+    const c={video:{width:CONFIG.video.width,height:CONFIG.video.height,facingMode:this.facingMode},audio:false};
+    this.stream=await navigator.mediaDevices.getUserMedia(c);
+    this.video.srcObject=this.stream;
+    await new Promise(r=>this.video.onloadedmetadata=r);
+    await this.video.play();
+  }
+ 
   setupControls(){
-    // ... оригинальные кнопки ...
-
-    document.getElementById('closeDebugBtn').onclick = () => {
-      this.debugMode = false;
+    document.getElementById('recognizeBtn').onclick=()=>this.recognizeOnce(false);
+ 
+    document.getElementById('autoBtn').onclick=()=>{
+      this.autoMode=!this.autoMode;
+      const btn=document.getElementById('autoBtn');
+      btn.classList.toggle('on',this.autoMode);
+      btn.textContent=this.autoMode?'⏸ Стоп':'🔄 Авто';
+      this.lastStableId=null; this.stableCount=0;
+      if(this.autoMode){ this.log('Авто режим ВКЛ','ok'); this.autoLoop(); }
+      else { this.log('Авто режим ВЫКЛ'); if(this.autoTimer) clearTimeout(this.autoTimer); this.autoTimer=null; }
+    };
+ 
+    document.getElementById('debugBtn').onclick=()=>{
+      this.debugMode=!this.debugMode;
+      document.getElementById('debugPanel').classList.toggle('show',this.debugMode);
+      document.getElementById('debugBtn').classList.toggle('on',this.debugMode);
+    };
+ 
+    // Кнопка ✕ внутри debug-панели
+    document.getElementById('debugCloseBtn').onclick=()=>{
+      this.debugMode=false;
       document.getElementById('debugPanel').classList.remove('show');
       document.getElementById('debugBtn').classList.remove('on');
     };
-
-    // recognizeBtn, autoBtn и т.д. — как в оригинале
+ 
+    document.getElementById('settingsBtn').onclick=()=>{
+      this.settingsOpen=!this.settingsOpen;
+      document.getElementById('settingsPanel').classList.toggle('show',this.settingsOpen);
+      document.getElementById('settingsBtn').classList.toggle('on',this.settingsOpen);
+      if(this.settingsOpen) this.refreshSettingsUI();
+    };
+ 
+    document.getElementById('switchBtn').onclick=async()=>{
+      this.facingMode=this.facingMode==='environment'?'user':'environment';
+      if(this.stream) this.stream.getTracks().forEach(t=>t.stop());
+      await this.startCamera();
+      this.log('Камера переключена','ok');
+    };
   }
-
-  // captureROIToCanvas — можно оставить как было или чуть расширить область
-  // recognizeOnce, showResult и остальные методы — почти без изменений (только вызовы recognizer)
-
-  // refreshSettingsUI, log, setStatus — как было
+ 
+  setupSettingsUI(){
+    const $=id=>document.getElementById(id);
+    const bind=(id,key,factor=1,isCheck=false)=>{
+      const el=$(id);
+      if(isCheck){
+        el.checked=!!SETTINGS[key];
+        el.onchange=()=>{SETTINGS[key]=el.checked;saveSettings();this.refreshSettingsUI();};
+      } else {
+        el.value=Math.round(SETTINGS[key]*factor);
+        el.oninput=()=>{SETTINGS[key]=Number(el.value)/factor;saveSettings();this.refreshSettingsUI();};
+      }
+    };
+ 
+    bind('ui_minScore','minScore',100);
+    bind('ui_minMargin','minMargin',100);
+    bind('ui_adaptC','adaptiveC');
+    bind('ui_maxShift','maxShift');
+    bind('ui_stable','autoStable');
+    bind('ui_angles','anglesPreset');
+    bind('ui_cornerNorm','cornerNormalize',1,true);
+    bind('ui_useSobel','useSobel',1,true);
+ 
+    $('ui_adaptWin').value=SETTINGS.adaptiveWindow;
+    $('ui_adaptWin').onchange=()=>{
+      let v=Number($('ui_adaptWin').value);
+      if(v%2===0) v+=1;
+      v=Math.max(7,Math.min(41,v));
+      SETTINGS.adaptiveWindow=v; $('ui_adaptWin').value=v;
+      saveSettings(); this.refreshSettingsUI();
+    };
+ 
+    $('ui_resetBtn').onclick=()=>{
+      SETTINGS=structuredClone(DEFAULT_SETTINGS); saveSettings();
+      this.setupSettingsUI(); this.log('Настройки сброшены','ok');
+    };
+    $('ui_closeBtn').onclick=()=>{
+      this.settingsOpen=false;
+      $('settingsPanel').classList.remove('show');
+      $('settingsBtn').classList.remove('on');
+    };
+    this.refreshSettingsUI();
+  }
+ 
+  refreshSettingsUI(){
+    const $=id=>document.getElementById(id);
+    $('ui_minScoreVal').textContent=Math.round(SETTINGS.minScore*100)+'%';
+    $('ui_minMarginVal').textContent=Math.round(SETTINGS.minMargin*100)+'%';
+    $('ui_adaptWinVal').textContent=SETTINGS.adaptiveWindow;
+    $('ui_adaptCVal').textContent=SETTINGS.adaptiveC;
+    $('ui_maxShiftVal').textContent=SETTINGS.maxShift;
+    $('ui_cornerNormVal').textContent=SETTINGS.cornerNormalize?'ON':'OFF';
+    $('ui_sobelVal').textContent=SETTINGS.useSobel?'ON':'OFF';
+    const angles=getAngles();
+    $('ui_anglesVal').textContent=angles.join(',')+'°';
+    $('ui_stableVal').textContent=SETTINGS.autoStable+'x';
+  }
+ 
+  autoLoop(){
+    const tick=async()=>{
+      if(!this.autoMode) return;
+      await this.recognizeOnce(true);
+      this.autoTimer=setTimeout(tick,900);
+    };
+    tick();
+  }
+ 
+  captureROIToCanvas(){
+    const zone=document.getElementById('scanZone');
+    const zr=zone.getBoundingClientRect();
+    const vr=this.video.getBoundingClientRect();
+ 
+    const inset=8;
+    const zoneLeft=zr.left+inset, zoneTop=zr.top+inset;
+    const zoneW=Math.max(20,zr.width-inset*2), zoneH=Math.max(20,zr.height-inset*2);
+ 
+    const srcW=this.video.videoWidth, srcH=this.video.videoHeight;
+    const elW=vr.width, elH=vr.height;
+    const scale=Math.max(elW/srcW,elH/srcH);
+    const shownW=elW/scale, shownH=elH/scale;
+    const offsetX=(srcW-shownW)/2, offsetY=(srcH-shownH)/2;
+ 
+    const relX=zoneLeft-vr.left, relY=zoneTop-vr.top;
+    const sx=offsetX+(relX/scale), sy=offsetY+(relY/scale);
+    const sw=zoneW/scale, sh=zoneH/scale;
+ 
+    this.roiCtx.imageSmoothingEnabled=true;
+    this.roiCtx.imageSmoothingQuality='high';
+    this.roiCtx.drawImage(this.video,sx,sy,sw,sh,0,0,this.roiCanvas.width,this.roiCanvas.height);
+ 
+    return {video:`${srcW}x${srcH}`,roi:`${this.roiCanvas.width}x${this.roiCanvas.height}`,
+      scale:scale.toFixed(3),sx:sx.toFixed(1),sy:sy.toFixed(1),sw:sw.toFixed(1),sh:sh.toFixed(1)};
+  }
+ 
+  getNormImageDataFromROI(){
+    this.normCtx.imageSmoothingEnabled=true; this.normCtx.imageSmoothingQuality='high';
+    this.normCtx.fillStyle='#fff'; this.normCtx.fillRect(0,0,this.normCanvas.width,this.normCanvas.height);
+    this.normCtx.drawImage(this.roiCanvas,0,0,this.roiCanvas.width,this.roiCanvas.height,
+      0,0,this.normCanvas.width,this.normCanvas.height);
+    return this.normCtx.getImageData(0,0,this.normCanvas.width,this.normCanvas.height);
+  }
+ 
+  renderCandidates(cands, limit=8){
+    const box=document.getElementById('debugCandidates');
+    box.innerHTML='';
+    cands.slice(0,limit).forEach((c,i)=>{
+      const line=document.createElement('div');
+      line.className='cand-line';
+      line.innerHTML=`
+        <div class="cand-left">${i+1}) ${c.name}</div>
+        <div class="cand-right">${(c.total*100).toFixed(1)}% C:${(c.corner*100).toFixed(1)}(${c.cornerWhich}@${c.cornerAngle}°) F:${(c.full*100).toFixed(1)} S:${(c.sobelScore*100).toFixed(1)}</div>
+      `;
+      box.appendChild(line);
+    });
+  }
+ 
+  renderDebugLines(obj){
+    const order=['video','roi','scale','sx','sy','sw','sh','std','redRatio','suitHint','angles','cornerNormTL','cornerNormBR',
+      'best','bestScore','bestParts','second','secondScore','margin','decision'];
+    const labels={video:'video',roi:'ROI',scale:'scale',sx:'sx',sy:'sy',sw:'sw',sh:'sh',
+      std:'contrast',redRatio:'redRatio',suitHint:'suitHint',angles:'angles',
+      cornerNormTL:'cnormTL',cornerNormBR:'cnormBR',
+      best:'best',bestScore:'bestScore',bestParts:'bestParts',
+      second:'second',secondScore:'secondScore',margin:'margin',decision:'decision'};
+    let html='';
+    for(const k of order){
+      if(obj[k]===undefined) continue;
+      html+=`<div class="dbg-line">${labels[k]||k}: <span style="color:#fff">${obj[k]}</span></div>`;
+    }
+    document.getElementById('debugInfo').innerHTML=html;
+  }
+ 
+  drawDebugCanvases(roiCanvas, normData, cornerMask, cw, ch, sobelData){
+    const roiCtx=document.getElementById('dbgROI').getContext('2d',{willReadFrequently:true});
+    roiCtx.clearRect(0,0,90,126);
+    roiCtx.imageSmoothingEnabled=true; roiCtx.imageSmoothingQuality='high';
+    roiCtx.drawImage(roiCanvas,0,0,90,126);
+ 
+    const drawID=(canvas,imageData)=>{
+      const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if(!imageData) return;
+      const tmp=document.createElement('canvas');
+      tmp.width=imageData.width; tmp.height=imageData.height;
+      tmp.getContext('2d',{willReadFrequently:true}).putImageData(imageData,0,0);
+      ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+      ctx.drawImage(tmp,0,0,canvas.width,canvas.height);
+    };
+    drawID(document.getElementById('dbgNorm'),normData);
+ 
+    if(cornerMask&&cw&&ch)
+      ImgProc.drawBinaryCornerToCanvas(cornerMask,cw,ch,document.getElementById('dbgBin'));
+    else
+      document.getElementById('dbgBin').getContext('2d').clearRect(0,0,200,280);
+ 
+    if(sobelData)
+      ImgProc.drawGrayToCanvas(sobelData.sobel,sobelData.w,sobelData.h,document.getElementById('dbgSobel'));
+    else
+      document.getElementById('dbgSobel').getContext('2d').clearRect(0,0,200,280);
+  }
+ 
+  async recognizeOnce(isAuto){
+    if(this.isRecognizing) return;
+    this.isRecognizing=true;
+    const btn=document.getElementById('recognizeBtn');
+    const zone=document.getElementById('scanZone');
+    try{
+      btn.textContent='⏳';
+      zone.classList.add('active');
+      this.setStatus('Анализ...');
+      await new Promise(r=>setTimeout(r,25));
+ 
+      const roiDbg=this.captureROIToCanvas();
+      const normData=this.getNormImageDataFromROI();
+      const result=await this.recognizer.recognize(normData);
+ 
+      if(this.debugMode){
+        this.renderCandidates(result.candidates||[],8);
+        this.renderDebugLines({...roiDbg,...(result.debug||{}),
+          decision:result.error?('ERR: '+result.error):'OK'});
+        const angles=getAngles();
+        const a0=angles.includes(0)?0:angles[0];
+        const cornerMask=result.prep?.tlMasks?.[a0]||null;
+        this.drawDebugCanvases(this.roiCanvas,normData,cornerMask,
+          result.prep?.cornerW||0,result.prep?.cornerH||0,
+          result.prep?.sobelData||null);
+      }
+ 
+      btn.textContent='🎯 Распознать';
+      zone.classList.remove('active');
+ 
+      if(result.error){
+        zone.classList.add('error');
+        setTimeout(()=>zone.classList.remove('error'),700);
+        this.setStatus(result.error,'error');
+        this.log('✗ '+result.error,'err');
+        return;
+      }
+ 
+      // стабилизация для авторежима
+      if(isAuto&&SETTINGS.autoStable>1){
+        const bestId=result.candidates?.[0]?.id;
+        if(this.lastStableId===bestId) this.stableCount++;
+        else { this.lastStableId=bestId; this.stableCount=1; }
+        if(this.stableCount<SETTINGS.autoStable){
+          this.setStatus(`Предварительно: ${result.name} (${this.stableCount}/${SETTINGS.autoStable})`);
+          this.log(`… ${result.name} (${this.stableCount}/${SETTINGS.autoStable})`,'warn');
+          return;
+        }
+        this.lastStableId=null; this.stableCount=0;
+      }
+ 
+      this.showResult(result);
+      this.setStatus('✅ '+result.name,'ok');
+      this.log(`✓ ${result.name} (${result.confidence}%)`,'ok');
+      if(navigator.vibrate) navigator.vibrate([40,30,40]);
+ 
+    } catch(e){
+      btn.textContent='🎯 Распознать';
+      zone.classList.remove('active');
+      zone.classList.add('error');
+      setTimeout(()=>zone.classList.remove('error'),700);
+      this.setStatus(e.message,'error');
+      this.log('✗ '+e.message,'err');
+      console.error(e);
+    } finally {
+      this.isRecognizing=false;
+    }
+  }
+ 
+  showResult(card){
+    const suitInfo=CARDS[card.suit]||{class:''};
+    document.getElementById('cardSymbol').textContent=`${card.rank}${card.suit}`;
+    document.getElementById('cardSymbol').className=suitInfo.class;
+    document.getElementById('cardTitle').textContent=card.name;
+    document.getElementById('cardConfidence').textContent=`Уверенность: ${card.confidence}%`;
+    const box=document.getElementById('resultCard');
+    box.classList.add('show');
+    setTimeout(()=>box.classList.remove('show'),2500);
+  }
+ 
+  setStatus(text,type=''){
+    const el=document.getElementById('statusBar');
+    el.textContent=text; el.className=type;
+  }
+ 
+  log(text,type=''){
+    const box=document.getElementById('historyLog');
+    const line=document.createElement('div');
+    line.className='log-line'+(type?(' log-'+type):'');
+    line.textContent=new Date().toLocaleTimeString().slice(-8)+' '+text;
+    box.insertBefore(line,box.firstChild);
+    while(box.children.length>12) box.removeChild(box.lastChild);
+  }
 }
-
-// Запуск
-window.addEventListener('load', () => new App());
+ 
+window.addEventListener('load',()=>new App());
 </script>
 </body>
 </html>
