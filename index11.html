@@ -140,11 +140,11 @@
     
     <div id="loader">
       <div class="spin"></div>
-      <div id="loaderText">Загрузка модели TensorFlow...</div>
+      <div id="loaderText">Загрузка TensorFlow.js и модели...</div>
     </div>
   </div>
 
-  <!-- TensorFlow.js -->
+  <!-- TensorFlow.js - ОБНОВЛЕНО ДО ВЕРСИИ 4.17.0 (совместимо с моделью) -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0"></script>
 
   <script>
@@ -166,6 +166,8 @@
 
       async loadModel() {
         try {
+          console.log('TensorFlow.js version:', tf.version);
+          
           // Загружаем модель
           console.log('Загрузка модели...');
           this.model = await tf.loadLayersModel('model/model.json');
@@ -174,6 +176,9 @@
           // Загружаем названия классов
           console.log('Загрузка классов...');
           const response = await fetch('model/classes.json');
+          if (!response.ok) {
+            throw new Error(`Failed to load classes.json: ${response.status} ${response.statusText}`);
+          }
           const data = await response.json();
           this.classNames = data;
           console.log(`✓ Классы загружены: ${this.classNames.length}`);
@@ -189,6 +194,7 @@
           return true;
         } catch (error) {
           console.error('Ошибка загрузки модели:', error);
+          console.error('Stack:', error.stack);
           return false;
         }
       }
@@ -314,16 +320,15 @@
         this.loader.style.display = 'block';
         document.getElementById('loaderText').textContent = text;
         if (sub) {
-          const subEl = document.createElement('div');
-          subEl.style.fontSize = '10px';
-          subEl.style.color = '#aaa';
-          subEl.style.marginTop = '4px';
-          subEl.textContent = sub;
-          // Если уже есть subtext, заменяем
-          const existing = document.getElementById('loaderSubtext');
-          if (existing) existing.remove();
-          subEl.id = 'loaderSubtext';
-          this.loader.appendChild(subEl);
+          const subEl = document.getElementById('loaderSubtext');
+          if (subEl) subEl.remove();
+          const newSub = document.createElement('div');
+          newSub.id = 'loaderSubtext';
+          newSub.style.fontSize = '10px';
+          newSub.style.color = '#aaa';
+          newSub.style.marginTop = '4px';
+          newSub.textContent = sub;
+          this.loader.appendChild(newSub);
         }
       }
 
@@ -333,7 +338,7 @@
 
       async init() {
         try {
-          this.setLoading('Загрузка модели...', 'model/model.json');
+          this.setLoading('Загрузка TensorFlow.js...', 'v4.17.0');
           
           const loaded = await this.recognizer.loadModel();
           if (!loaded) throw new Error('Не удалось загрузить модель');
@@ -349,7 +354,7 @@
           this.loader.innerHTML = `
             <div style="color:#f44336;font-size:15px;font-weight:bold;">Ошибка!</div>
             <div style="font-size:11px;margin-top:10px;">${e.message}</div>
-            <div style="font-size:10px;margin-top:10px;color:#888;">Проверьте model/model.json и model/classes.json</div>
+            <div style="font-size:10px;margin-top:10px;color:#888;">TensorFlow.js: ${tf.version || 'не загружен'}</div>
           `;
         }
       }
@@ -527,5 +532,5 @@
     // Запуск приложения после загрузки страницы
     window.onload = () => new App();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32eccb0ba136fed',t:'MTc4ODA0MDUyMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32ee60e3ded6fed',t:'MTc4ODA0MTU2MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
