@@ -3,110 +3,50 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Распознавание карт v11 — GraphModel</title>
+  <title>Распознавание карт v11 — Try LayersModel with strict:false</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
     html, body { width:100%; height:100%; overflow:hidden; position:fixed; font-size:14px; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background:#000; }
-
     #container { position:relative; width:100vw; height:100vh; height:100dvh; }
     #video { width:100%; height:100%; object-fit:cover; }
     #canvas { display:none; }
-
-    #topArea {
-      position:absolute; top:0; left:0; right:0;
-      padding:10px; display:flex; justify-content:center;
-      align-items:flex-start; gap:10px; z-index:10;
-    }
-    #scanZone {
-      width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px;
-      box-shadow:0 0 0 9999px rgba(0,0,0,0.65); flex-shrink:0; position:relative;
-    }
-    #scanZone::before {
-      content:'Наведите карту'; position:absolute; bottom:-24px;
-      left:50%; transform:translateX(-50%);
-      color:#4CAF50; font-size:11px; white-space:nowrap;
-    }
+    #topArea { position:absolute; top:0; left:0; right:0; padding:10px; display:flex; justify-content:center; align-items:flex-start; gap:10px; z-index:10; }
+    #scanZone { width:200px; height:280px; border:3px solid #4CAF50; border-radius:12px; box-shadow:0 0 0 9999px rgba(0,0,0,0.65); flex-shrink:0; position:relative; }
+    #scanZone::before { content:'Наведите карту'; position:absolute; bottom:-24px; left:50%; transform:translateX(-50%); color:#4CAF50; font-size:11px; white-space:nowrap; }
     #scanZone.active { border-color:#FFC107; animation:glow .6s infinite; }
     #scanZone.active::before { color:#FFC107; content:'Анализ...'; }
     #scanZone.error  { border-color:#f44336; animation:shake .4s; }
     #scanZone.error::before  { color:#f44336; content:'Не распознано'; }
-    @keyframes glow {
-      0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 14px #FFC107;}
-      50%    {box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 28px #FFC107;}
-    }
-    @keyframes shake {
-      0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);}  75%{transform:translateX(5px);}
-    }
-
+    @keyframes glow { 0%,100%{box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 14px #FFC107;} 50%{box-shadow:0 0 0 9999px rgba(0,0,0,0.65),0 0 28px #FFC107;} }
+    @keyframes shake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 75%{transform:translateX(5px);} }
     #ctrlButtons { display:flex; flex-direction:column; gap:8px; }
-    .ctrl-btn {
-      width:40px; height:40px; border-radius:50%;
-      background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3);
-      color:white; font-size:18px; display:flex; align-items:center; justify-content:center;
-      cursor:pointer; transition:.2s; user-select:none;
-    }
+    .ctrl-btn { width:40px; height:40px; border-radius:50%; background:rgba(0,0,0,0.75); border:2px solid rgba(255,255,255,0.3); color:white; font-size:18px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.2s; user-select:none; }
     .ctrl-btn:active { transform:scale(.9); }
     .ctrl-btn.on { background:rgba(76,175,80,0.85); border-color:#4CAF50; }
-
-    #resultCard {
-      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(.9);
-      background:rgba(255,255,255,0.98); border-radius:16px; padding:18px 28px;
-      box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center;
-      opacity:0; transition:.3s; z-index:30; pointer-events:none;
-    }
+    #resultCard { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(.9); background:rgba(255,255,255,0.98); border-radius:16px; padding:18px 28px; box-shadow:0 8px 32px rgba(0,0,0,0.5); text-align:center; opacity:0; transition:.3s; z-index:30; pointer-events:none; }
     #resultCard.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
     #cardSymbol { font-size:68px; font-weight:bold; line-height:1; }
     #cardTitle  { font-size:15px; color:#555; margin-top:6px; font-weight:500; }
     #cardConf   { font-size:11px; color:#888; margin-top:4px; }
     .red  { color:#e53935; }
     .black{ color:#212121; }
-
-    #statusBar {
-      position:absolute; top:318px; left:50%; transform:translateX(-50%);
-      background:rgba(0,0,0,0.85); color:white;
-      padding:6px 14px; border-radius:12px; font-size:11px; max-width:93%;
-      text-align:center; z-index:10; pointer-events:none;
-    }
+    #statusBar { position:absolute; top:318px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:white; padding:6px 14px; border-radius:12px; font-size:11px; max-width:93%; text-align:center; z-index:10; pointer-events:none; }
     #statusBar.error { background:rgba(244,67,54,.95); }
     #statusBar.ok    { background:rgba(76,175,80,.95); }
-
-    #bottomArea {
-      position:absolute; bottom:0; left:0; right:0;
-      padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom));
-      display:flex; flex-direction:column; gap:8px; align-items:center;
-      background:linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%);
-      z-index:10;
-    }
-    #historyLog {
-      background:rgba(0,0,0,0.7); border-radius:8px; padding:5px 9px;
-      width:100%; max-width:380px; max-height:52px; overflow-y:auto;
-      font-family:monospace; font-size:9px; color:#0f0;
-    }
+    #bottomArea { position:absolute; bottom:0; left:0; right:0; padding:10px; padding-bottom:max(10px, env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:8px; align-items:center; background:linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%); z-index:10; }
+    #historyLog { background:rgba(0,0,0,0.7); border-radius:8px; padding:5px 9px; width:100%; max-width:380px; max-height:52px; overflow-y:auto; font-family:monospace; font-size:9px; color:#0f0; }
     .log-line { margin:2px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .log-err  { color:#f44336; } .log-ok { color:#4CAF50; } .log-warn { color:#FFC107; }
-
     #actionButtons { display:flex; gap:8px; width:100%; max-width:380px; }
-    .action-btn {
-      flex:1; border:none; padding:13px 0; border-radius:18px;
-      font-size:14px; font-weight:600; cursor:pointer; transition:.2s; color:white;
-    }
+    .action-btn { flex:1; border:none; padding:13px 0; border-radius:18px; font-size:14px; font-weight:600; cursor:pointer; transition:.2s; color:white; }
     .action-btn:active { transform:scale(.96); }
     #recognizeBtn { background:linear-gradient(135deg,#667eea,#764ba2); box-shadow:0 4px 14px rgba(102,126,234,.5); }
     #autoBtn      { background:linear-gradient(135deg,#FFC107,#FF9800); box-shadow:0 4px 14px rgba(255,193,7,.5); }
     #autoBtn.on   { background:linear-gradient(135deg,#4CAF50,#43A047); }
-
-    #loader {
-      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-      background:rgba(0,0,0,0.95); border-radius:16px; padding:24px;
-      text-align:center; color:white; z-index:1000;
-    }
+    #loader { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.95); border-radius:16px; padding:24px; text-align:center; color:white; z-index:1000; }
     #loaderText { font-size:13px; margin-top:12px; }
-    .spin {
-      border:4px solid rgba(255,255,255,0.25); border-top:4px solid #667eea;
-      border-radius:50%; width:36px; height:36px; animation:rotate 1s linear infinite;
-      margin:0 auto;
-    }
+    .spin { border:4px solid rgba(255,255,255,0.25); border-top:4px solid #667eea; border-radius:50%; width:36px; height:36px; animation:rotate 1s linear infinite; margin:0 auto; }
     @keyframes rotate { to { transform:rotate(360deg); } }
   </style>
 </head>
@@ -114,22 +54,18 @@
   <div id="container">
     <video id="video" autoplay playsinline></video>
     <canvas id="canvas"></canvas>
-    
     <div id="topArea">
       <div id="scanZone"></div>
       <div id="ctrlButtons">
         <div class="ctrl-btn" id="switchBtn">📷</div>
       </div>
     </div>
-    
     <div id="resultCard">
       <div id="cardSymbol">?</div>
       <div id="cardTitle">Ожидание...</div>
       <div id="cardConf"></div>
     </div>
-    
     <div id="statusBar">Загрузка модели...</div>
-    
     <div id="bottomArea">
       <div id="historyLog"></div>
       <div id="actionButtons">
@@ -137,18 +73,16 @@
         <button class="action-btn" id="autoBtn">🔄 Авто</button>
       </div>
     </div>
-    
     <div id="loader">
       <div class="spin"></div>
       <div id="loaderText">Загрузка TensorFlow.js и модели...</div>
     </div>
   </div>
 
-  <!-- TensorFlow.js -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0"></script>
+  <!-- TensorFlow.js - ПОСЛЕДНЯЯ ВЕРСИЯ 4.22.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0"></script>
 
   <script>
-    // Конфигурация карт
     const CARDS = {
       '♥': { name: 'Червы', class: 'red' },
       '♦': { name: 'Бубны', class: 'red' },
@@ -156,225 +90,154 @@
       '♣': { name: 'Трефы', class: 'black' }
     };
 
-    // Класс для распознавания с использованием модели TensorFlow.js
     class MLCardRecognizer {
       constructor() {
         this.model = null;
         this.classNames = [];
         this.ready = false;
-        this.inputTensor = null;
-        this.outputTensor = null;
       }
 
       async loadModel() {
         try {
-          console.log('TensorFlow.js version:', tf.version);
+          console.log('TF.js version:', tf.version);
           
-          // Загружаем модель как GraphModel (поддерживает сложные архитектуры)
-          console.log('Загрузка модели (GraphModel)...');
-          this.model = await tf.loadGraphModel('model/model.json');
-          console.log('✓ Модель загружена');
+          // Пробуем loadLayersModel с strict: false
+          console.log('Попытка загрузить модель с strict: false...');
+          this.model = await tf.loadLayersModel('model/model.json', { strict: false });
+          console.log('✓ Модель загружена (LayersModel)');
           
-          // Получаем информацию о входах и выходах
-          console.log('Model inputs:', this.model.inputs.map(i => i.name + ':' + i.shape));
-          console.log('Model outputs:', this.model.outputs.map(o => o.name + ':' + o.shape));
-          
-          // Сохраняем входной и выходной тензоры для удобства
-          this.inputTensor = this.model.inputs[0];
-          this.outputTensor = this.model.outputs[0];
-          
-          // Загружаем названия классов
-          console.log('Загрузка классов...');
+          // Загружаем классы
           const response = await fetch('model/classes.json');
-          if (!response.ok) {
-            throw new Error(`Failed to load classes.json: ${response.status} ${response.statusText}`);
-          }
-          const data = await response.json();
-          this.classNames = data;
+          if (!response.ok) throw new Error(`classes.json: ${response.status}`);
+          this.classNames = await response.json();
           console.log(`✓ Классы загружены: ${this.classNames.length}`);
           
-          // Прогреваем модель
-          console.log('Прогрев модели...');
-          // Для GraphModel нужно вручную создать тензор с правильной формой
-          const inputShape = this.inputTensor.shape.slice(1); // Убираем batch dimension
-          console.log('Input shape:', inputShape);
-          
+          // Прогрев
+          const inputShape = this.model.inputs[0].shape.slice(1);
           const dummy = tf.zeros([1, ...inputShape]);
-          const result = this.model.execute(dummy, this.outputTensor.name);
-          await result.data();
+          this.model.predict(dummy).dispose();
           dummy.dispose();
-          result.dispose();
           console.log('✓ Модель готова');
           
           this.ready = true;
           return true;
         } catch (error) {
           console.error('Ошибка загрузки модели:', error);
-          console.error('Stack:', error.stack);
-          return false;
+          console.error('Стек:', error.stack);
+          
+          // Если LayersModel не сработал, пробуем GraphModel
+          try {
+            console.log('Попытка загрузить как GraphModel...');
+            this.model = await tf.loadGraphModel('model/model.json');
+            console.log('✓ Модель загружена (GraphModel)');
+            
+            const response = await fetch('model/classes.json');
+            if (!response.ok) throw new Error(`classes.json: ${response.status}`);
+            this.classNames = await response.json();
+            console.log(`✓ Классы загружены: ${this.classNames.length}`);
+            
+            // Прогрев для GraphModel
+            const inputName = this.model.inputs[0].name;
+            const outputName = this.model.outputs[0].name;
+            const inputShape = this.model.inputs[0].shape.slice(1);
+            const dummy = tf.zeros([1, ...inputShape]);
+            this.model.execute(dummy, outputName).dispose();
+            dummy.dispose();
+            console.log('✓ Модель готова');
+            
+            this.ready = true;
+            return true;
+          } catch (error2) {
+            console.error('GraphModel тоже не загрузился:', error2);
+            return false;
+          }
         }
       }
 
-      // Парсинг имени класса
       parseClassName(className) {
-        const rankMap = {
-          '6': '6', '7': '7', '8': '8', '9': '9', '10': '10',
-          'j': 'J', 'q': 'Q', 'k': 'K', 'a': 'A'
-        };
-        
-        const suitMap = {
-          'h': '♥',   // hearts - червы
-          'b': '♦',   // buben - бубны
-          'p': '♠',   // pikes - пики
-          'c': '♣'    // clubs - трефы
-        };
-        
-        const suitNames = {
-          '♥': 'Червей', 
-          '♦': 'Бубен', 
-          '♠': 'Пик', 
-          '♣': 'Треф'
-        };
-        
-        const rankNames = {
-          '6': 'Шестёрка', '7': 'Семёрка', '8': 'Восьмёрка',
-          '9': 'Девятка', '10': 'Десятка',
-          'J': 'Валет', 'Q': 'Дама', 'K': 'Король', 'A': 'Туз'
-        };
+        const rankMap = { '6': '6', '7': '7', '8': '8', '9': '9', '10': '10', 'j': 'J', 'q': 'Q', 'k': 'K', 'a': 'A' };
+        const suitMap = { 'h': '♥', 'b': '♦', 'p': '♠', 'c': '♣' };
+        const suitNames = { '♥': 'Червей', '♦': 'Бубен', '♠': 'Пик', '♣': 'Треф' };
+        const rankNames = { '6': 'Шестёрка', '7': 'Семёрка', '8': 'Восьмёрка', '9': 'Девятка', '10': 'Десятка', 'J': 'Валет', 'Q': 'Дама', 'K': 'Король', 'A': 'Туз' };
         
         const lower = className.toLowerCase();
         let rank = null, suit = null;
-        
         for (const [key, val] of Object.entries(rankMap)) {
-          if (lower.startsWith(key)) {
-            rank = val;
-            break;
-          }
+          if (lower.startsWith(key)) { rank = val; break; }
         }
-        
-        const lastChar = lower.slice(-1);
-        suit = suitMap[lastChar];
-        
-        const name = `${rankNames[rank] || rank} ${suitNames[suit] || '?'}`;
-        
-        return { rank, suit, name };
+        suit = suitMap[lower.slice(-1)];
+        return { rank, suit, name: `${rankNames[rank] || rank} ${suitNames[suit] || '?'}` };
       }
 
       async recognizeCard(imageData) {
-        if (!this.ready) {
-          return { error: 'Модель не загружена' };
-        }
-
+        if (!this.ready) return { error: 'Модель не загружена' };
+        
         try {
-          // Конвертируем ImageData в тензор
           let tensor = tf.browser.fromPixels(imageData);
+          const inputShape = this.model.inputs[0].shape.slice(1);
+          tensor = tensor.resizeBilinear(inputShape).toFloat().div(127.5).sub(1).expandDims(0);
           
-          // Изменяем размер под вход модели
-          const inputShape = this.inputTensor.shape.slice(1);
-          tensor = tensor.resizeBilinear(inputShape);
+          // Для LayersModel и GraphModel разные методы предсказания
+          let predictions;
+          if (this.model.predict) {
+            predictions = this.model.predict(tensor);
+          } else {
+            predictions = this.model.execute(tensor, this.model.outputs[0].name);
+          }
           
-          // Нормализация
-          tensor = tensor.toFloat().div(127.5).sub(1);
-          
-          // Добавляем batch dimension
-          tensor = tensor.expandDims(0);
-          
-          // Предсказание
-          const outputName = this.outputTensor.name;
-          const predictions = this.model.execute(tensor, outputName);
           const probs = await predictions.data();
-          
-          // Находим максимальную вероятность
           const maxProb = Math.max(...probs);
           const maxIndex = probs.indexOf(maxProb);
           
-          // Очистка памяти
           tensor.dispose();
           predictions.dispose();
           
-          // Порог уверенности
-          if (maxProb < 0.6) {
-            return { 
-              error: `Не уверен (${(maxProb * 100).toFixed(0)}%)`,
-              confidence: Math.round(maxProb * 100)
-            };
-          }
+          if (maxProb < 0.6) return { error: `Не уверен (${(maxProb * 100).toFixed(0)}%)` };
           
           const className = this.classNames[maxIndex];
-          const parsed = this.parseClassName(className);
-          
-          return {
-            ...parsed,
-            confidence: Math.round(maxProb * 100),
-            className: className
-          };
-          
+          return { ...this.parseClassName(className), confidence: Math.round(maxProb * 100) };
         } catch (error) {
           console.error('Ошибка распознавания:', error);
-          return { error: 'Ошибка обработки: ' + error.message };
+          return { error: 'Ошибка обработки' };
         }
       }
     }
 
-    // ============================================
-    // APP — основное приложение
-    // ============================================
     class App {
       constructor() {
         this.video = document.getElementById('video');
         this.canvas = document.getElementById('canvas');
         this.ctx = this.canvas.getContext('2d');
         this.loader = document.getElementById('loader');
-        
         this.recognizer = new MLCardRecognizer();
         this.stream = null;
         this.facingMode = 'environment';
         this.autoMode = false;
         this.autoInterval = null;
         this.isRecognizing = false;
-        
         this.init();
       }
 
-      setLoading(text, sub = '') {
+      setLoading(text) {
         this.loader.style.display = 'block';
         document.getElementById('loaderText').textContent = text;
-        if (sub) {
-          const subEl = document.getElementById('loaderSubtext');
-          if (subEl) subEl.remove();
-          const newSub = document.createElement('div');
-          newSub.id = 'loaderSubtext';
-          newSub.style.fontSize = '10px';
-          newSub.style.color = '#aaa';
-          newSub.style.marginTop = '4px';
-          newSub.textContent = sub;
-          this.loader.appendChild(newSub);
-        }
       }
-
-      hideLoading() {
-        this.loader.style.display = 'none';
-      }
+      hideLoading() { this.loader.style.display = 'none'; }
 
       async init() {
         try {
-          this.setLoading('Загрузка TensorFlow.js...', 'v4.17.0');
-          
+          this.setLoading('Загрузка модели...');
           const loaded = await this.recognizer.loadModel();
           if (!loaded) throw new Error('Не удалось загрузить модель');
-          
-          // Камеру запускаем только после клика (для мобильных устройств)
           this.setupControls();
-          
           this.hideLoading();
           this.setStatus('Готово к работе');
           this.log('✓ Модель загружена', 'ok');
-          
         } catch (e) {
           this.loader.innerHTML = `
             <div style="color:#f44336;font-size:15px;font-weight:bold;">Ошибка!</div>
             <div style="font-size:11px;margin-top:10px;">${e.message}</div>
-            <div style="font-size:10px;margin-top:10px;color:#888;">TensorFlow.js: ${tf.version || 'не загружен'}</div>
+            <div style="font-size:10px;margin-top:10px;color:#888;">TF.js: ${typeof tf !== 'undefined' ? JSON.stringify(tf.version) : 'не загружен'}</div>
           `;
         }
       }
@@ -382,11 +245,7 @@
       async startCamera() {
         try {
           this.stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              facingMode: this.facingMode 
-            },
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: this.facingMode },
             audio: false
           });
           this.video.srcObject = this.stream;
@@ -394,7 +253,6 @@
           await this.video.play();
           return true;
         } catch (err) {
-          console.error('Camera error:', err);
           this.setStatus('Нет доступа к камере', 'error');
           this.log('✗ ' + err.message, 'err');
           return false;
@@ -402,13 +260,13 @@
       }
 
       setupCanvas() {
-        const inputShape = this.recognizer.inputTensor.shape.slice(1);
-        this.canvas.width = inputShape[0];
-        this.canvas.height = inputShape[1];
+        const width = this.recognizer.model.inputs[0].shape[1];
+        const height = this.recognizer.model.inputs[0].shape[2];
+        this.canvas.width = width;
+        this.canvas.height = height;
       }
 
       setupControls() {
-        // Кнопка распознавания
         document.getElementById('recognizeBtn').onclick = async () => {
           if (!this.stream) {
             const ok = await this.startCamera();
@@ -418,7 +276,6 @@
           await this.recognizeOnce();
         };
         
-        // Кнопка авто-режима
         const autoBtn = document.getElementById('autoBtn');
         autoBtn.onclick = async () => {
           if (!this.stream) {
@@ -426,11 +283,9 @@
             if (!ok) return;
             this.setupCanvas();
           }
-          
           this.autoMode = !this.autoMode;
           autoBtn.classList.toggle('on', this.autoMode);
           autoBtn.textContent = this.autoMode ? '⏸ Стоп' : '🔄 Авто';
-          
           if (this.autoMode) {
             this.log('Авто ВКЛ', 'ok');
             this.autoLoop();
@@ -440,11 +295,9 @@
           }
         };
         
-        // Кнопка переключения камеры
         document.getElementById('switchBtn').onclick = async () => {
           if (!this.stream) {
-            const ok = await this.startCamera();
-            if (!ok) return;
+            await this.startCamera();
           } else {
             this.facingMode = this.facingMode === 'environment' ? 'user' : 'environment';
             this.stream.getTracks().forEach(t => t.stop());
@@ -463,28 +316,23 @@
         tick();
       }
 
-      async recognizeOnce(isAuto = false) {
+      async recognizeOnce() {
         if (this.isRecognizing) return;
         this.isRecognizing = true;
-        
         const btn = document.getElementById('recognizeBtn');
         const zone = document.getElementById('scanZone');
-        
         btn.textContent = '⏳';
         zone.classList.add('active');
         this.setStatus('Анализ...');
 
         try {
-          // Захватываем центральную часть видео
           const vw = this.video.videoWidth;
           const vh = this.video.videoHeight;
           const size = Math.min(vw, vh) * 0.6;
           const sx = (vw - size) / 2;
           const sy = (vh - size) / 2;
-          
           this.ctx.drawImage(this.video, sx, sy, size, size, 0, 0, this.canvas.width, this.canvas.height);
           const imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
-          
           const result = await this.recognizer.recognizeCard(imageData);
           
           btn.textContent = '🎯 Распознать';
@@ -495,17 +343,12 @@
             setTimeout(() => zone.classList.remove('error'), 700);
             this.setStatus(result.error, 'error');
             this.log('✗ ' + result.error, 'err');
-            return;
+          } else {
+            this.showResult(result);
+            this.setStatus(`✅ ${result.name}`, 'ok');
+            this.log(`✓ ${result.name} (${result.confidence}%)`, 'ok');
+            if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
           }
-
-          this.showResult(result);
-          this.setStatus(`✅ ${result.name}`, 'ok');
-          this.log(`✓ ${result.name} (${result.confidence}%)`, 'ok');
-          
-          if (navigator.vibrate) {
-            navigator.vibrate([40, 30, 40]);
-          }
-
         } catch (e) {
           btn.textContent = '🎯 Распознать';
           zone.classList.remove('active', 'error');
@@ -513,7 +356,6 @@
           setTimeout(() => zone.classList.remove('error'), 700);
           this.setStatus(e.message, 'error');
           this.log('✗ ' + e.message, 'err');
-          console.error(e);
         } finally {
           this.isRecognizing = false;
         }
@@ -524,8 +366,7 @@
         document.getElementById('cardSymbol').textContent = `${card.rank}${card.suit}`;
         document.getElementById('cardSymbol').className = suitInfo.class;
         document.getElementById('cardTitle').textContent = card.name;
-        document.getElementById('cardConf').textContent = `${card.confidence}% уверенность`;
-        
+        document.getElementById('cardConf').textContent = `${card.confidence}%`;
         const box = document.getElementById('resultCard');
         box.classList.add('show');
         setTimeout(() => box.classList.remove('show'), 3000);
@@ -547,8 +388,7 @@
       }
     }
 
-    // Запуск приложения после загрузки страницы
     window.onload = () => new App();
   </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32f0a004cdb02d9',t:'MTc4ODA0MzAzMw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32f43d9797a3cff',t:'MTc4ODA0NTQwMw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
