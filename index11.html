@@ -298,9 +298,9 @@
                     console.log('✓ Модель загружена');
                     
                     // Загружаем названия классов
-                    const response = await fetch('model/class_names.txt');
-                    const text = await response.text();
-                    this.classNames = text.trim().split('\n');
+                    const response = await fetch('model/classes.json');
+                    const data = await response.json();
+                    this.classNames = data;
                     console.log(`✓ Классы загружены: ${this.classNames.length}`);
                     
                     // Прогреваем модель
