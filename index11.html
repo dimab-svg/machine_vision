@@ -363,50 +363,51 @@
             }
 
             parseClassName(className) {
-                // Парсим название класса (например: "7h" → 7 червей)
-                const rankMap = {
-                    '6': '6', '7': '7', '8': '8', '9': '9', '10': '10',
-                    'j': 'J', 'q': 'Q', 'k': 'K', 'a': 'A',
-                    'v': 'J', 'd': 'Q'  // Русские варианты
-                };
-                
-                const suitMap = {
-                    'h': '♥', 'p': '♠', 'tr': '♣', 'b': '♦'
-                };
-                
-                const suitNames = {
-                    '♥': 'Червей', '♠': 'Пик', '♣': 'Треф', '♦': 'Бубен'
-                };
-                
-                const rankNames = {
-                    '6': 'Шестёрка', '7': 'Семёрка', '8': 'Восьмёрка',
-                    '9': 'Девятка', '10': 'Десятка',
-                    'J': 'Валет', 'Q': 'Дама', 'K': 'Король', 'A': 'Туз'
-                };
-                
-                // Извлекаем ранг и масть из названия класса
-                const lower = className.toLowerCase();
-                let rank = null, suit = null;
-                
-                for (let [key, val] of Object.entries(rankMap)) {
-                    if (lower.startsWith(key)) {
-                        rank = val;
-                        break;
-                    }
-                }
-                
-                for (let [key, val] of Object.entries(suitMap)) {
-                    if (lower.includes(key)) {
-                        suit = val;
-                        break;
-                    }
-                }
-                
-                const name = `${rankNames[rank] || rank} ${suitNames[suit] || '?'}`;
-                
-                return { rank, suit, name };
-            }
+    // Парсим: "7c" → 7 треф
+    const rankMap = {
+        '6': '6', '7': '7', '8': '8', '9': '9', '10': '10',
+        'j': 'J', 'q': 'Q', 'k': 'K', 'a': 'A'
+    };
+    
+    const suitMap = {
+        'h': '♥',   // hearts - червы
+        'b': '♦',   // buben - бубны
+        'p': '♠',   // pikes - пики
+        'c': '♣'    // clubs - трефы
+    };
+    
+    const suitNames = {
+        '♥': 'Червей', 
+        '♦': 'Бубен', 
+        '♠': 'Пик', 
+        '♣': 'Треф'
+    };
+    
+    const rankNames = {
+        '6': 'Шестёрка', '7': 'Семёрка', '8': 'Восьмёрка',
+        '9': 'Девятка', '10': 'Десятка',
+        'J': 'Валет', 'Q': 'Дама', 'K': 'Король', 'A': 'Туз'
+    };
+    
+    const lower = className.toLowerCase();
+    let rank = null, suit = null;
+    
+    // Извлекаем ранг
+    for (let [key, val] of Object.entries(rankMap)) {
+        if (lower.startsWith(key)) {
+            rank = val;
+            break;
         }
+    }
+    
+    // Извлекаем масть (последний символ)
+    const lastChar = lower.slice(-1);
+    suit = suitMap[lastChar];
+    
+    const name = `${rankNames[rank] || rank} ${suitNames[suit] || '?'}`;
+    
+    return { rank, suit, name };
+}
 
         class App {
             constructor() {
